@@ -1,16 +1,26 @@
-const Header = () => {
+const Header = ({ go }) => {
   return (
     <header className="header">
       <div className="header-row">
-        {/* 왼쪽: 로고 */}
-        <span className="logo">click talk</span>
+        {/* 왼쪽 로고 */}
+        <span className="logo" onClick={() => go("/")}>
+          click talk
+        </span>
 
-        {/* 오른쪽: 메뉴 */}
+        {/* 오른쪽 메뉴 */}
         <nav className="nav-items">
-          <button className="nav-btn active">clicktalk</button>
-          <button className="nav-btn active">로그인</button>
-          <button className="nav-btn active">내지갑</button>
-          <button className="nav-btn active">회원가입</button>
+          <button className="nav-btn" onClick={() => go("/chatbot")}>
+            clicktalk
+          </button>
+          <button className="nav-btn" onClick={() => go("/login")}>
+            로그인
+          </button>
+          <button className="nav-btn" onClick={() => go("/wallet")}>
+            내지갑
+          </button>
+          <button className="nav-btn" onClick={() => go("/signup")}>
+            회원가입
+          </button>
         </nav>
       </div>
     </header>

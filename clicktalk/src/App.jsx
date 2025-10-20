@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import Header from "./components/Header";
-import StartPage from "./pages/StartPage"; // ✅ StartPage 위치가 pages 폴더면 이 경로 유지
+import Header from "./components/Header"; // ✅ 기존 노란색 헤더
+import HeaderWhite from "./components/HeaderWhite"; // ✅ 새로 만든 흰색 헤더
+import StartPage from "./pages/StartPage";
+import SignupPage from "./pages/SignupPage";
 
-// ✅ 해시 기반 라우팅 훅
 const useHashRoute = () => {
   const get = () => window.location.hash.replace("#", "") || "/";
   const [path, setPath] = useState(get());
@@ -22,7 +23,6 @@ const useHashRoute = () => {
   return { path, navigate };
 };
 
-// ✅ 메인 App 컴포넌트
 const App = () => {
   const { path, navigate } = useHashRoute();
 
@@ -31,14 +31,19 @@ const App = () => {
 
   return (
     <div className={wrapperClass}>
-      {/* === 고정 노랑 배경 === */}
-      <div className="landing-bg" aria-hidden="true" />
+      {/* === 배경 === */}
+      {path === "/" && <div className="landing-bg" aria-hidden="true" />}
 
-      {/* === 상단 로고 & 메뉴 === */}
-      <Header path={path} go={navigate} />
+      {/* === 헤더 조건 분리 === */}
+      {path === "/signup" ? (
+        <HeaderWhite go={navigate} /> // ⚪ 회원가입용 흰색 헤더
+      ) : (
+        <Header go={navigate} /> // 🟡 기본 노란색 헤더
+      )}
 
-      {/* === 메인 콘텐츠 === */}
+      {/* === 페이지 === */}
       {path === "/" && <StartPage go={navigate} />}
+      {path === "/signup" && <SignupPage go={navigate} />}
     </div>
   );
 };
