@@ -6,6 +6,8 @@ import StartPage from "./pages/StartPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
+import ChatbotPage from "./pages/ChatbotPage";
+import MissionPage from "./pages/MissionPage";
 
 const useHashRoute = () => {
   const get = () => window.location.hash.replace("#", "") || "/";
@@ -37,7 +39,7 @@ const App = () => {
       {/* 헤더 분기 */}
       {path === "/" ? (
         <Header go={navigate} />
-      ) : path === "/wallet" ? (
+      ) : path === "/wallet" || path === "/chat" || path === "/mission" ? (
         <MainHeader go={navigate} />
       ) : (
         <HeaderWhite go={navigate} />
@@ -48,6 +50,8 @@ const App = () => {
       {path === "/signup" && <SignupPage go={navigate} />}
       {path === "/login" && <LoginPage go={navigate} />}
       {path === "/wallet" && <DashboardPage go={navigate} />}
+      {path === "/chat" && <ChatbotPage go={navigate} />}
+      {path === "/mission" && <MissionPage go={navigate} />}
     </div>
   );
 };

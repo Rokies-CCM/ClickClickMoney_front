@@ -9,7 +9,7 @@ const Header = ({ go }) => {
 
         {/* 오른쪽 메뉴 */}
         <nav className="nav-items">
-          <button className="nav-btn" onClick={() => go("/chatbot")}>
+          <button className="nav-btn" onClick={() => go("/chat")}>
             clicktalk
           </button>
           <button className="nav-btn" onClick={() => go("/login")}>
