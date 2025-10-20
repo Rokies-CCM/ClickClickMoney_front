@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import Header from "./components/Header";
 import HeaderWhite from "./components/HeaderWhite";
+import MainHeader from "./components/MainHeader";
 import StartPage from "./pages/StartPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
+import DashboardPage from "./pages/DashboardPage";
 
 const useHashRoute = () => {
   const get = () => window.location.hash.replace("#", "") || "/";
@@ -35,6 +37,8 @@ const App = () => {
       {/* 헤더 분기 */}
       {path === "/" ? (
         <Header go={navigate} />
+      ) : path === "/wallet" ? (
+        <MainHeader go={navigate} />
       ) : (
         <HeaderWhite go={navigate} />
       )}
@@ -42,7 +46,8 @@ const App = () => {
       {/* 페이지 분기 */}
       {path === "/" && <StartPage go={navigate} />}
       {path === "/signup" && <SignupPage go={navigate} />}
-      {path === "/login" && <LoginPage go={navigate} />} {/* 추가 */}
+      {path === "/login" && <LoginPage go={navigate} />}
+      {path === "/wallet" && <DashboardPage go={navigate} />}
     </div>
   );
 };
