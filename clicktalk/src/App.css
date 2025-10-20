@@ -1,0 +1,171 @@
+/* === 공통 === */
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #FFD858;
+}
+
+/* === 상단 헤더 === */
+.header {
+  padding: 14px 0;
+  position: relative;
+  z-index: 10;
+  background: transparent;
+}
+.header-row {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ✅ 로고: click talk 복원 */
+.logo {
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: #000;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  cursor: pointer;
+}
+.logo:hover {
+  opacity: 0.85;
+}
+
+/* ✅ 메뉴 텍스트 얇게 조정 */
+.nav-items {
+  display: flex;
+  gap: 28px;
+}
+.nav-btn {
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  color: rgba(0, 0, 0, 0.75);
+  cursor: pointer;
+  font-weight: 400; /* ✅ 얇게 */
+  font-size: 16px;
+  letter-spacing: 0.01em;
+}
+.nav-btn:hover {
+  color: #000;
+}
+
+/* === 메인 === */
+.hero-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* === 폰 모형 === */
+.phone {
+  position: relative;
+  width: min(520px, 80vw);
+  aspect-ratio: 9 / 12;
+  border-radius: 22px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* ✅ 그림자 제거 */
+  box-shadow: none;
+}
+
+/* 상단 다이내믹 아일랜드 */
+.island {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 26px;
+  width: 160px;
+  border-radius: 9999px;
+  background: #000;
+}
+
+/* 상태 텍스트 */
+.statusL, .statusR {
+  position: absolute;
+  top: 14px;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+}
+.statusL { left: 18px; }
+.statusR { right: 18px; }
+
+/* === 내부 콘텐츠 === */
+.phone-inner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  padding: 80px 60px;
+  box-sizing: border-box;
+}
+.phone-content {
+  display: flex;
+  flex-direction: row; /* ✅ 아이콘 옆 배치 */
+  align-items: center;
+  justify-content: center;
+  gap: 50px;
+}
+
+/* ✅ 아이콘 크기 확대 */
+.icon-hero {
+  width: clamp(200px, 30%, 260px);
+  height: auto;
+  object-fit: contain;
+}
+
+/* 텍스트 정렬 */
+.title-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+}
+.title-xxl {
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-size: clamp(42px, 4.5vw, 60px);
+  color: #000;
+  text-align: left;
+}
+.subtitle {
+  margin-top: 8px;
+  font-size: 15px;
+  color: rgba(0, 0, 0, 0.6);
+  text-align: left;
+}
+
+/* 버튼 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 2px solid #000;
+  background: #FFD858;
+  color: #111;
+  font-weight: 700;
+  padding: 0 34px;
+  min-width: 200px;
+  height: 56px;
+  font-size: 20px;
+  margin-top: 32px;
+  transition: transform 0.04s ease;
+}
+.btn:hover {
+  transform: translateY(-2px);
+}
