@@ -8,6 +8,9 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import ChatbotPage from "./pages/ChatbotPage";
 import MissionPage from "./pages/MissionPage";
+import PointPage from "./pages/PointPage";
+import AccountBookPage from "./pages/AccountBookPage";
+import ExpenseAnalysisPage from "./pages/ExpenseAnalysisPage";
 
 const useHashRoute = () => {
   const get = () => window.location.hash.replace("#", "") || "/";
@@ -39,7 +42,7 @@ const App = () => {
       {/* 헤더 분기 */}
       {path === "/" ? (
         <Header go={navigate} />
-      ) : path === "/wallet" || path === "/chat" || path === "/mission" ? (
+      ) : path === "/wallet" || path === "/chat" || path === "/mission" || path === "/point" || path === "/account" ? (
         <MainHeader go={navigate} />
       ) : (
         <HeaderWhite go={navigate} />
@@ -52,6 +55,9 @@ const App = () => {
       {path === "/wallet" && <DashboardPage go={navigate} />}
       {path === "/chat" && <ChatbotPage go={navigate} />}
       {path === "/mission" && <MissionPage go={navigate} />}
+      {path === "/point" && <PointPage go={navigate} />}
+      {path === "/account" && <AccountBookPage go={navigate} />}
+      {path === "/analysis" && <ExpenseAnalysisPage go={navigate} />}
     </div>
   );
 };
