@@ -1,4 +1,27 @@
+import { useState } from "react";
+
 const SignupPage = ({ go }) => {
+  const [id, setId] = useState("");
+  const [pw, setPw] = useState("");
+  const [pwCheck, setPwCheck] = useState("");
+
+  const handleSignup = () => {
+    // === 유효성 검사 ===
+    if (!id || !pw || !pwCheck) {
+      alert("모든 항목을 입력해주세요.");
+      return;
+    }
+
+    if (pw !== pwCheck) {
+      alert("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    // === 성공 시 ===
+    alert("회원가입이 완료되었습니다!");
+    go("/login"); // ✅ 로그인 페이지로 이동
+  };
+
   return (
     <section
       style={{
@@ -18,7 +41,7 @@ const SignupPage = ({ go }) => {
           justifyContent: "center",
           alignItems: "center",
           width: "100%",
-          transform: "translateY(-40px)", // ✅ 폼 전체 위로 올리기
+          transform: "translateY(-40px)",
         }}
       >
         <div style={{ width: "400px" }}>
@@ -29,7 +52,7 @@ const SignupPage = ({ go }) => {
               fontWeight: 700,
               marginBottom: "32px",
               textAlign: "left",
-              transform: "translateX(-20px)", // ✅ 약간 왼쪽으로 이동
+              transform: "translateX(-20px)",
             }}
           >
             기본정보
@@ -49,6 +72,8 @@ const SignupPage = ({ go }) => {
           <input
             type="text"
             placeholder="영문, 숫자, 특수문자(_, .) 사용가능. 5~20자"
+            value={id}
+            onChange={(e) => setId(e.target.value)}
             style={{
               width: "100%",
               height: "40px",
@@ -73,6 +98,8 @@ const SignupPage = ({ go }) => {
           <input
             type="password"
             placeholder="영문자, 숫자, 특수문자 조합 8~20자"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
             style={{
               width: "100%",
               height: "40px",
@@ -97,6 +124,8 @@ const SignupPage = ({ go }) => {
           <input
             type="password"
             placeholder="비밀번호를 다시 입력하세요."
+            value={pwCheck}
+            onChange={(e) => setPwCheck(e.target.value)}
             style={{
               width: "100%",
               height: "40px",
@@ -126,7 +155,7 @@ const SignupPage = ({ go }) => {
                 fontWeight: 500,
                 cursor: "pointer",
                 marginRight: "10px",
-                border: "0.8px solid #828282", // ✅ 얇은 검은 테두리 추가
+                border: "0.8px solid #828282",
               }}
               onClick={() => go("/")}
             >
@@ -142,8 +171,9 @@ const SignupPage = ({ go }) => {
                 fontSize: "16px",
                 fontWeight: 600,
                 cursor: "pointer",
-                border: "none", // ✅ 테두리 제거
+                border: "none",
               }}
+              onClick={handleSignup}
             >
               회원가입
             </button>
