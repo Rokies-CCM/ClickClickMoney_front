@@ -1,9 +1,15 @@
 /* === 공통 === */
 html, body {
   height: 100%;
+  max-width: 100%;
   margin: 0;
   overflow: auto;
   background: #FFD858;
+  overflow-x: hidden !important;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 /* === 상단 헤더 === */
@@ -168,4 +174,8 @@ html, body {
 }
 .btn:hover {
   transform: translateY(-2px);
+}
+
+::-webkit-scrollbar {
+  height: 0px;
 }

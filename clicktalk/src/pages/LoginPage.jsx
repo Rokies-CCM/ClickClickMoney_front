@@ -1,22 +1,36 @@
+// src/pages/LoginPage.jsx
 import { useState } from "react";
+import { login, me } from "../api/auth"; //  API 래퍼 임포트
 
 const LoginPage = ({ go }) => {
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
 
-  const handleLogin = () => {
-    // 빈칸 확인
+  const handleLogin = async (e) => {
+    e?.preventDefault();
+    setErrMsg("");
+
     if (!id || !pw) {
-      alert("아이디와 비밀번호를 입력해주세요.");
+      setErrMsg("아이디와 비밀번호를 입력해주세요.");
       return;
     }
 
-    // 로그인 검증 (샘플용: 실제로는 서버 검증)
-    if (id === "test" && pw === "1234") {
-      alert("로그인 성공!");
-      go("/wallet"); // 메인 페이지로 이동
-    } else {
-      alert("아이디 또는 비밀번호가 올바르지 않습니다.");
+    try {
+      setLoading(true);
+      // 1) 로그인 → accessToken 저장 (auth.login 내부에서 저장)
+      await login(id, pw);
+
+      // 2) 토큰으로 내 정보 확인(옵션) — 실패하면 catch로
+      await me();
+
+      // 3) 이동
+      go("/wallet");
+    } catch (error) {
+      setErrMsg(error?.message || "로그인에 실패했습니다.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -31,7 +45,8 @@ const LoginPage = ({ go }) => {
       }}
     >
       {/* === 로그인 박스 === */}
-      <div
+      <form
+        onSubmit={handleLogin}
         style={{
           width: "420px",
           padding: "48px 42px",
@@ -53,12 +68,30 @@ const LoginPage = ({ go }) => {
           로그인
         </h2>
 
+        {/* 오류 메시지 */}
+        {errMsg && (
+          <div
+            style={{
+              background: "#fff2f2",
+              border: "1px solid #ffb3b3",
+              color: "#c92a2a",
+              borderRadius: "4px",
+              padding: "8px 10px",
+              marginBottom: "12px",
+              fontSize: "14px",
+            }}
+          >
+            {errMsg}
+          </div>
+        )}
+
         {/* 아이디 */}
         <input
           type="text"
           placeholder="아이디"
           value={id}
           onChange={(e) => setId(e.target.value)}
+          autoComplete="username"
           style={{
             height: "44px",
             border: "1px solid #ccc",
@@ -75,6 +108,7 @@ const LoginPage = ({ go }) => {
           placeholder="비밀번호"
           value={pw}
           onChange={(e) => setPw(e.target.value)}
+          autoComplete="current-password"
           style={{
             height: "44px",
             border: "1px solid #ccc",
@@ -87,19 +121,20 @@ const LoginPage = ({ go }) => {
 
         {/* 로그인 버튼 */}
         <button
+          type="submit"
+          disabled={loading}
           style={{
-            background: "#FFD858",
+            background: loading ? "#e4ca62" : "#FFD858",
             border: "none",
             height: "46px",
             fontSize: "16px",
             fontWeight: 600,
-            cursor: "pointer",
+            cursor: loading ? "not-allowed" : "pointer",
             borderRadius: "4px",
             marginBottom: "20px",
           }}
-          onClick={handleLogin}
         >
-          로그인
+          {loading ? "로그인 중..." : "로그인"}
         </button>
 
         {/* 구분선 */}
@@ -110,7 +145,7 @@ const LoginPage = ({ go }) => {
             backgroundColor: "#e0e0e0",
             marginBottom: "20px",
           }}
-        ></div>
+        />
 
         {/* 추가 버튼 3개 */}
         <div
@@ -121,6 +156,7 @@ const LoginPage = ({ go }) => {
           }}
         >
           <button
+            type="button"
             style={{
               flex: 1,
               height: "42px",
@@ -135,6 +171,7 @@ const LoginPage = ({ go }) => {
             회원가입
           </button>
           <button
+            type="button"
             style={{
               flex: 1,
               height: "42px",
@@ -144,10 +181,12 @@ const LoginPage = ({ go }) => {
               fontWeight: 500,
               cursor: "pointer",
             }}
+            onClick={() => alert("아이디 찾기 기능은 준비 중입니다.")}
           >
             아이디 찾기
           </button>
           <button
+            type="button"
             style={{
               flex: 1,
               height: "42px",
@@ -157,11 +196,12 @@ const LoginPage = ({ go }) => {
               fontWeight: 500,
               cursor: "pointer",
             }}
+            onClick={() => alert("비밀번호 찾기 기능은 준비 중입니다.")}
           >
             비밀번호 찾기
           </button>
         </div>
-      </div>
+      </form>
     </section>
   );
 };

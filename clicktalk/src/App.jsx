@@ -13,8 +13,25 @@ import AccountBookPage from "./pages/AccountBookPage";
 import ExpenseAnalysisPage from "./pages/ExpenseAnalysisPage";
 import SubscriptionPage from "./pages/SubscriptionPage";
 
+/** 헤더 분기용 경로 집합 */
+const MAIN_HEADER_PATHS = new Set([
+  "/wallet",
+  "/chat",
+  "/mission",
+  "/point",
+  "/account",
+  "/subscription",
+  "/analysis",
+]);
+
 const useHashRoute = () => {
-  const get = () => window.location.hash.replace("#", "") || "/";
+  // ✅ 쿼리스트링 제거하여 "경로"만 반환
+  const get = () => {
+    const raw = window.location.hash.slice(1) || "/";
+    const onlyPath = raw.split("?")[0] || "/";
+    return onlyPath.startsWith("/") ? onlyPath : `/${onlyPath}`;
+  };
+
   const [path, setPath] = useState(get());
 
   useEffect(() => {
@@ -25,8 +42,10 @@ const useHashRoute = () => {
 
   const navigate = (to) => {
     if (!to.startsWith("/")) to = "/" + to;
-    if (window.location.hash !== `#${to}`) window.location.hash = to;
-    setPath(to);
+    if (window.location.hash !== `#${to}`) {
+      window.location.hash = to; // 해시(쿼리 포함) 변경
+    }
+    setPath(get()); // ✅ 상태엔 "경로"만 저장 (쿼리 제외)
   };
 
   return { path, navigate };
@@ -43,7 +62,7 @@ const App = () => {
       {/* 헤더 분기 */}
       {path === "/" ? (
         <Header go={navigate} />
-      ) : path === "/wallet" || path === "/chat" || path === "/mission" || path === "/point" || path === "/account" || path === "/subscription"? (
+      ) : MAIN_HEADER_PATHS.has(path) ? (
         <MainHeader go={navigate} />
       ) : (
         <HeaderWhite go={navigate} />
@@ -59,7 +78,7 @@ const App = () => {
       {path === "/point" && <PointPage go={navigate} />}
       {path === "/account" && <AccountBookPage go={navigate} />}
       {path === "/analysis" && <ExpenseAnalysisPage go={navigate} />}
-      {path === "/subscription" && <SubscriptionPage go={navigate} />} 
+      {path === "/subscription" && <SubscriptionPage go={navigate} />}
     </div>
   );
 };

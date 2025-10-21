@@ -2,7 +2,7 @@ import { useState } from "react";
 import Sidebar from "./Sidebar";
 
 const MainHeader = ({ go }) => {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // ✅ 기본 닫힘 상태
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // 기본 닫힘 상태
 
   return (
     <>
