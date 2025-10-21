@@ -7,20 +7,81 @@ const cleanText = (s) => {
   let t = String(s);
 
   // 1) data 페이로드 안에 섞여 들어오는 SSE 메타 토큰 제거
-  //    - 'event: start....', 'event: done', 'event: end'
   t = t.replace(/\bevent:\s*(?:start|done|end)[a-f0-9]*\b/gi, "");
-
-  // 2) 맨 앞에 붙어오는 해시/ID 토큰 제거 (예: '30557d9a3356안녕하세요...')
+  // 2) 맨 앞에 붙어오는 해시/ID 토큰 제거
   t = t.replace(/^\s*(?:start)?[a-f0-9]{8,}\s*/i, "");
-
   // 3) 끝에 붙는 제어 토큰 정리
   t = t.replace(/\s*(?:done|end)\s*$/i, "");
 
   return t.trim();
 };
 
+const SourceButtonsRow = ({ buttons }) => {
+  if (!buttons || !buttons.length) return null;
+  return (
+    <div
+      style={{
+        marginTop: "6px",
+        display: "flex",
+        gap: "8px",
+        flexWrap: "wrap",
+      }}
+    >
+      {buttons.map((b, i) => {
+        const label =
+          (b.title && String(b.title).trim()) ||
+          (b.host && String(b.host).trim()) ||
+          (b.url && (() => {
+            try {
+              const u = new URL(b.url);
+              return u.hostname.replace(/^www\./, "");
+            } catch {
+              return b.url;
+            }
+          })()) ||
+          "출처";
+        return (
+          <a
+            key={i}
+            href={b.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={label}
+            style={{
+              display: "inline-block",
+              maxWidth: "220px",
+              padding: "6px 10px",
+              border: "1px solid #000",
+              borderRadius: "999px",
+              background: "#fff",
+              textDecoration: "none",
+              color: "#000",
+              fontSize: "12px",
+              lineHeight: "14px",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              cursor: "pointer",
+              transition: "0.2s ease",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.backgroundColor = "#FFD858")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.backgroundColor = "#fff")
+            }
+          >
+            🔗 {label}
+          </a>
+        );
+      })}
+    </div>
+  );
+};
+
 const ChatbotPage = () => {
-  const [messages, setMessages] = useState([]); // { text, type: "user" | "bot" }
+  // message: { text, type: "user" | "bot", sourceButtons?: {title,url,host}[] }
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -47,8 +108,18 @@ const ChatbotPage = () => {
     setMessages((prev) => {
       if (!prev.length) return prev;
       const last = prev[prev.length - 1];
-      if (last.type !== "bot") return [...prev, { text: delta, type: "bot" }];
+      if (last.type !== "bot")
+        return [...prev, { text: delta, type: "bot" }];
       const updated = { ...last, text: (last.text || "") + delta };
+      return [...prev.slice(0, -1), updated];
+    });
+
+  const setLastBotButtons = (buttons) =>
+    setMessages((prev) => {
+      if (!prev.length) return prev;
+      const last = prev[prev.length - 1];
+      if (last.type !== "bot") return prev;
+      const updated = { ...last, sourceButtons: buttons || [] };
       return [...prev.slice(0, -1), updated];
     });
 
@@ -100,20 +171,42 @@ const ChatbotPage = () => {
             if (payload === "[DONE]") continue;
 
             // JSON 우선
+            let parsedOk = false;
             try {
               const obj = JSON.parse(payload);
-              const deltaRaw = obj.answerDelta ?? obj.answer ?? "";
-              const delta = cleanText(deltaRaw);
-              if (delta) {
-                updateLastBot(delta);
-                scrollToBottom("auto");
+              parsedOk = true;
+
+              // 메타(done)인지/텍스트 델타인지 구분
+              const isMeta =
+                obj?.usage !== undefined ||
+                obj?.provider !== undefined ||
+                obj?.model !== undefined ||
+                obj?.source_buttons !== undefined ||
+                obj?.sourceButtons !== undefined;
+
+              if (isMeta) {
+                const btns = obj.source_buttons ?? obj.sourceButtons ?? [];
+                if (Array.isArray(btns) && btns.length) {
+                  setLastBotButtons(btns);
+                }
+                // 메타에는 본문 델타 없음
+              } else {
+                // 일반 텍스트 델타
+                const deltaRaw = obj.answerDelta ?? obj.answer ?? "";
+                const delta = cleanText(deltaRaw);
+                if (delta) {
+                  updateLastBot(delta);
+                  scrollToBottom("auto");
+                }
               }
             } catch {
               // JSON 아니면 텍스트로 처리
-              const delta = cleanText(payload);
-              if (delta) {
-                updateLastBot(delta);
-                scrollToBottom("auto");
+              if (!parsedOk) {
+                const delta = cleanText(payload);
+                if (delta) {
+                  updateLastBot(delta);
+                  scrollToBottom("auto");
+                }
               }
             }
           } else {
@@ -132,6 +225,10 @@ const ChatbotPage = () => {
       try {
         const data = await askChat({ question: q, stream: false });
         appendBot(cleanText(data.answer ?? JSON.stringify(data)));
+        const btns = data.source_buttons ?? data.sourceButtons ?? [];
+        if (Array.isArray(btns) && btns.length) {
+          setLastBotButtons(btns);
+        }
       } catch (err) {
         if (import.meta.env.DEV) console.error("[chat] fallback request failed:", err);
         appendBot("서버 연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
@@ -268,6 +365,9 @@ const ChatbotPage = () => {
               }}
             >
               {msg.text}
+              {msg.type === "bot" && msg.sourceButtons?.length > 0 && (
+                <SourceButtonsRow buttons={msg.sourceButtons} />
+              )}
             </div>
           ))}
           <div ref={bottomRef} />
