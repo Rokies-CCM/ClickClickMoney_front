@@ -74,41 +74,13 @@ const MissionPage = ({ go }) => {
   const [modalKind, setModalKind] = useState(null);     // 'quiz' | 'visit' | 'info'
   const [selectedMission, setSelectedMission] = useState(null);
 
-  // 미션 기본 데이터 (type으로 종류 구분)
+  // 기본 미션
   const defaultMissions = [
-    {
-      id: 1,
-      type: "quiz",
-      title: "금융 퀴즈",
-      desc: "오늘의 금융 상식 퀴즈 3문제 풀기",
-      progress: 0,
-      total: 3,
-      point: 30,
-      lastCompletedDate: null, // "YYYY-MM-DD"
-    },
-    {
-      id: 2,
-      type: "visit",
-      title: "웹 페이지 방문",
-      desc: "웹 페이지 방문 후 체크인 하기",
-      progress: 0,
-      total: 3,
-      point: 30,
-      lastCompletedDate: null,
-    },
-    {
-      id: 3,
-      type: "quiz",
-      title: "금융 퀴즈",
-      desc: "오늘의 금융 상식 퀴즈 3문제 풀기",
-      progress: 0,
-      total: 1,
-      point: 30,
-      lastCompletedDate: null,
-    },
+    { id: 1, type: "quiz",  title: "금융 퀴즈",  desc: "오늘의 금융 상식 퀴즈 3문제 풀기", progress: 0, total: 1, point: 30, lastCompletedDate: null },
+    { id: 2, type: "visit", title: "웹 페이지 방문", desc: "웹 페이지 방문 후 체크인 하기",       progress: 0, total: 1, point: 30, lastCompletedDate: null },
+    { id: 3, type: "quiz",  title: "금융 퀴즈",  desc: "오늘의 금융 상식 퀴즈 3문제 풀기", progress: 0, total: 1, point: 30, lastCompletedDate: null },
   ];
 
-  // 미션 데이터 (localStorage 복원)
   const [missions, setMissions] = useState(defaultMissions);
 
   // 초기 로드: 저장된 미션 상태 반영
@@ -118,24 +90,18 @@ const MissionPage = ({ go }) => {
       if (raw) {
         const saved = JSON.parse(raw);
         if (Array.isArray(saved)) {
-          // 기본과 병합(새로운 미션이 추가되었을 때를 대비)
           const byId = new Map(saved.map((m) => [m.id, m]));
           const merged = defaultMissions.map((d) => byId.get(d.id) ?? d);
           setMissions(merged);
         }
       }
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   }, []);
 
   // 변경 시 저장
   useEffect(() => {
-    try {
-      localStorage.setItem(MISSIONS_KEY, JSON.stringify(missions));
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem(MISSIONS_KEY, JSON.stringify(missions)); }
+    catch { /* ignore */ }
   }, [missions]);
 
   // 해시 변경될 때 탭 동기화
@@ -180,51 +146,16 @@ const MissionPage = ({ go }) => {
     setSelectedMission(null);
   };
 
-  // 진행 1단계 증가 (총량 도달시 완료 처리 및 포인트 적립)
-  const advanceMission = (missionId) => {
-    const today = new Date().toISOString().split("T")[0];
-    setMissions((prev) =>
-      prev.map((m) => {
-        if (m.id !== missionId) return m;
-        if (m.progress >= m.total && m.lastCompletedDate === today) {
-          // 오늘 이미 완료
-          return m;
-        }
-        const nextProgress = Math.min(m.progress + 1, m.total);
-        // 완료 시 포인트 적립 + 완료 날짜 기록
-        if (nextProgress === m.total) {
-          // 오늘 처음 완료인 경우만 적립
-          if (m.lastCompletedDate !== today) {
-            creditPoints(m.point, "미션 완료 보상");
-          }
-          return { ...m, progress: nextProgress, lastCompletedDate: today };
-        }
-        return { ...m, progress: nextProgress };
-      })
-    );
-  };
-
-  // 최종 완료 처리(버튼) → 완료 시 포인트 페이지로 이동
+  // 최종 완료 처리 → 포인트 적립 + 완료 날짜 기록 + 포인트 화면 이동
   const finalizeMission = (missionId) => {
     const today = new Date().toISOString().split("T")[0];
-    setMissions((prev) => {
-      const updated = prev.map((m) => {
-        if (m.id !== missionId) return m;
-        if (m.progress < m.total) {
-          // 아직 미완료면 바로 완료로 올림(한 번에 완료하는 버튼 시나리오)
-          creditPoints(m.point, "미션 완료 보상");
-          return { ...m, progress: m.total, lastCompletedDate: today };
-        }
-        if (m.progress === m.total && m.lastCompletedDate !== today) {
-          // 전에 완료된 상태인데 오늘은 처음 완료 시
-          creditPoints(m.point, "미션 완료 보상");
-          return { ...m, lastCompletedDate: today };
-        }
-        return m;
-      });
-      return updated;
-    });
-
+    setMissions((prev) => prev.map((m) => {
+      if (m.id !== missionId) return m;
+      if (m.lastCompletedDate === today && m.progress >= m.total) return m; // 오늘 이미 완료
+      // 적립 후 완료 표시
+      creditPoints(m.point, "미션 완료 보상");
+      return { ...m, progress: m.total, lastCompletedDate: today };
+    }));
     closeModal();
     if (typeof go === "function") go("/point");
   };
@@ -423,16 +354,17 @@ const MissionPage = ({ go }) => {
             <QuizModal
               mission={selectedMission}
               onClose={closeModal}
-              onStep={() => advanceMission(selectedMission.id)} // 1단계 진행
-              onFinish={() => finalizeMission(selectedMission.id)} // 완료 버튼
+              onComplete={() => {
+                // 제출 후 정답 2+만 완료 허용
+                finalizeMission(selectedMission.id);
+              }}
             />
           )}
           {modalKind === "visit" && (
             <VisitModal
               mission={selectedMission}
               onClose={closeModal}
-              onStep={() => advanceMission(selectedMission.id)} // 방문 완료 = 1단계 진행
-              onFinish={() => finalizeMission(selectedMission.id)} // 바로 완료 버튼 필요 시
+              onComplete={() => finalizeMission(selectedMission.id)}
             />
           )}
           {modalKind === "info" && (
@@ -527,7 +459,7 @@ function InfoModal({ title = "안내", onClose, children }) {
 }
 
 /* ---------------- 퀴즈 모달 ---------------- */
-function QuizModal({ mission, onClose, onStep, onFinish }) {
+function QuizModal({ mission, onClose, onComplete }) {
   const questions = [
     { q: "다음 중 '고정비'의 예로 가장 적절한 것은?", options: ["월세", "식비", "택시비", "카페 이용"], a: 0 },
     { q: "비상자금 권장 수준은?", options: ["1개월 생활비", "3~6개월 생활비", "12개월 생활비", "필요없음"], a: 1 },
@@ -558,12 +490,11 @@ function QuizModal({ mission, onClose, onStep, onFinish }) {
     setSubmitted(true);
   };
 
-  const handleCompleteStep = () => {
+  const handleFinish = () => {
     if (correctCount >= 2) {
-      onStep();   // 1단계 진행
-      onClose();  // 단계 진행 후 닫기(원하면 유지 가능)
+      onComplete();  // ✅ 바로 완료
     } else {
-      alert("두 문제 이상 맞춰야 진행할 수 있어요.");
+      alert("두 문제 이상 맞춰야 완료할 수 있어요.");
     }
   };
 
@@ -637,11 +568,8 @@ function QuizModal({ mission, onClose, onStep, onFinish }) {
           </button>
         ) : (
           <>
-            <button onClick={handleCompleteStep} style={btnPrimary}>
-              진행 반영
-            </button>
-            <button onClick={onFinish} style={btnPrimary}>
-              바로 완료
+            <button onClick={handleFinish} style={btnPrimary}>
+              완료
             </button>
             <button onClick={onClose} style={btnText}>
               닫기
@@ -654,7 +582,7 @@ function QuizModal({ mission, onClose, onStep, onFinish }) {
 }
 
 /* ---------------- 방문 모달 ---------------- */
-function VisitModal({ mission, onClose, onStep, onFinish }) {
+function VisitModal({ mission, onClose, onComplete }) {
   const [visited, setVisited] = useState(false);
 
   const handleVisit = () => {
@@ -667,8 +595,7 @@ function VisitModal({ mission, onClose, onStep, onFinish }) {
       alert("먼저 '새 탭으로 방문'을 눌러 페이지를 방문해 주세요.");
       return;
     }
-    onStep();  // 1단계 진행
-    onClose();
+    onComplete();  // ✅ 방문 완료 = 최종 완료
   };
 
   return (
@@ -695,10 +622,7 @@ function VisitModal({ mission, onClose, onStep, onFinish }) {
             새 탭으로 방문
           </button>
           <button onClick={handleDone} style={btnPrimary}>
-            방문 완료(진행 +1)
-          </button>
-          <button onClick={onFinish} style={btnPrimary}>
-            바로 완료
+            방문 완료
           </button>
           <button onClick={onClose} style={btnText}>
             닫기
