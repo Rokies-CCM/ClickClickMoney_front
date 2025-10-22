@@ -1,0 +1,7 @@
+:root{
+  --color-yellow:#FFD858;
+  --color-black:#111111;
+  --shadow-hard:0 8px 0 0 rgba(0,0,0,0.10);
+  --shadow-hard-dark:0 8px 0 0 rgba(0,0,0,0.50);
+  --container:1120px;
+}
