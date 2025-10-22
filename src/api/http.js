@@ -1,5 +1,6 @@
 // src/api/http.js
-const API_BASE = ""; // ✅ 프록시 사용: 절대 URL 제거
+const API_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) || "";
 const TOKEN_KEY = "auth_access";
 
 // 토큰 보관/조회/삭제
@@ -14,10 +15,9 @@ async function unwrapResponse(res) {
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
-    // JSON이 아니면(plain text 응답 등) 메시지로 처리
+    // text/plain 같은 경우 그대로 반환할 수 있도록 메시지로 감쌈
     json = text ? { message: text } : null;
   }
-
   const payload = json && (json.data ?? json.result ?? json.payload ?? json);
 
   if (!res.ok) {

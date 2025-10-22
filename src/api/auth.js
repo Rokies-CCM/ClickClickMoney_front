@@ -1,3 +1,4 @@
+// src/api/auth.js
 import { http, setToken, getToken, clearToken } from "./http";
 
 // 회원가입 (백엔드 DTO: { username, password })
@@ -15,8 +16,7 @@ export const login = async (username, password) => {
 };
 
 // 내 정보 (백엔드: @AuthenticationPrincipal User → username 문자열 반환)
-export const me = () =>
-  http("GET", "/click/me", undefined, true);
+export const me = () => http("GET", "/click/me", undefined, true);
 
 // 로그아웃(프론트 로컬 토큰만 제거)
 export const logout = () => clearToken();
