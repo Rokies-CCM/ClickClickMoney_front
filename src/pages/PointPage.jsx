@@ -3,6 +3,16 @@ import { useEffect, useState } from "react";
 
 const WALLET_KEY = "points_wallet_v1";
 
+// ✅ 리워드 카탈로그(원하는 대로 추가/수정 가능)
+const REWARDS = [
+  { id: "lottery-pass", name: "복권 긁기 이용권", price: 50, desc: "미션 > 복권 긁기에서 즐겨 보세요." },
+  { id: "conv-500", name: "편의점 500원 할인권", price: 500, desc: "편의점에서 500원 할인(예시)." },
+  { id: "icecream", name: "아이스크림 교환권", price: 1000, desc: "일부 매장 제외(예시)." },
+  { id: "delivery-2k", name: "배달비 2,000원 할인", price: 2000, desc: "배달앱 쿠폰(예시)." },
+  { id: "coffee-ame", name: "커피 쿠폰(아메리카노)", price: 4500, desc: "스타벅스/투썸 등(예시)." },
+  { id: "movie", name: "영화 예매권", price: 9000, desc: "일반 2D 기준(예시)." },
+];
+
 function loadWalletSafely() {
   try {
     const raw = localStorage.getItem(WALLET_KEY);
@@ -26,15 +36,15 @@ export default function PointPage() {
     totalUsed: 0,
   });
   const [history, setHistory] = useState([]);
-  const [loaded, setLoaded] = useState(false); // 초기 저장 경합 방지
+  const [loaded, setLoaded] = useState(false);
 
-  // 교환 모달 상태
-  const [isExchangeOpen, setIsExchangeOpen] = useState(false);
-  const [exchangeAmount, setExchangeAmount] = useState(20);
+  // 🔄 카탈로그 모달
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
 
-  // 교환 완료 모달 상태
+  // ✅ 교환 완료 모달
   const [isSuccessOpen, setIsSuccessOpen] = useState(false);
   const [exchangedAmount, setExchangedAmount] = useState(0);
+  const [exchangedItemName, setExchangedItemName] = useState("");
 
   // 지갑 로드
   useEffect(() => {
@@ -87,34 +97,36 @@ export default function PointPage() {
     cursor: "pointer",
   };
 
-  // 교환 모달 열기/닫기
-  const openExchange = () => {
-    // 기본값: 20p, 보유 포인트보다 크면 보유 포인트로
-    setExchangeAmount(Math.min(20, Math.max(0, points.current)));
-    setIsExchangeOpen(true);
-  };
-  const closeExchange = () => setIsExchangeOpen(false);
+  // 카탈로그 열기/닫기
+  const openCatalog = () => setIsCatalogOpen(true);
+  const closeCatalog = () => setIsCatalogOpen(false);
 
-  // 교환 확정 -> 완료 모달
-  const confirmExchange = () => {
-    const amt = Math.floor(Number(exchangeAmount) || 0);
-    if (amt <= 0 || amt > points.current) return; // 버튼 disabled라 보통 안 옴
+  // ✅ 리워드 교환 처리
+  const redeemReward = (item) => {
+    if (!item) return;
+    if (item.price > points.current) return; // 방어
 
     const today = new Date().toISOString().split("T")[0];
 
     setPoints((prev) => ({
       ...prev,
-      current: prev.current - amt,
-      totalUsed: prev.totalUsed + amt,
+      current: prev.current - item.price,
+      totalUsed: prev.totalUsed + item.price,
     }));
     setHistory((prev) => [
       ...prev,
-      { date: today, desc: "포인트 교환", change: `-${amt}p`, amount: `-${amt}` },
+      {
+        date: today,
+        desc: `쿠폰 교환: ${item.name}`,
+        change: `-${item.price}p`,
+        amount: `-${item.price}`,
+      },
     ]);
 
-    setExchangedAmount(amt);
-    closeExchange();
-    setIsSuccessOpen(true); // ✅ alert 대신 완료 모달
+    setExchangedAmount(item.price);
+    setExchangedItemName(item.name);
+    closeCatalog();
+    setIsSuccessOpen(true);
   };
 
   return (
@@ -137,12 +149,8 @@ export default function PointPage() {
           textAlign: "left",
         }}
       >
-        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8 }}>
-          포인트
-        </h1>
-        <p style={{ color: "#555", fontSize: 15 }}>
-          포인트를 관리하고 교환하세요.
-        </p>
+        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8 }}>포인트</h1>
+        <p style={{ color: "#555", fontSize: 15 }}>포인트를 관리하고 교환하세요.</p>
       </div>
 
       {/* === 포인트 카드 3개 === */}
@@ -210,9 +218,7 @@ export default function PointPage() {
           onMouseLeave={(e) => Object.assign(e.currentTarget.style, normalStyle)}
         >
           <p style={{ fontSize: 14, color: "#555", marginBottom: 6 }}>총 적립</p>
-          <h3 style={{ fontSize: 26, fontWeight: 800 }}>
-            {points.totalEarned}p
-          </h3>
+          <h3 style={{ fontSize: 26, fontWeight: 800 }}>{points.totalEarned}p</h3>
         </div>
 
         {/* 총 사용 */}
@@ -229,13 +235,11 @@ export default function PointPage() {
           onMouseLeave={(e) => Object.assign(e.currentTarget.style, normalStyle)}
         >
           <p style={{ fontSize: 14, color: "#555", marginBottom: 6 }}>총 사용</p>
-          <h3 style={{ fontSize: 26, fontWeight: 800 }}>
-            {points.totalUsed}p
-          </h3>
+          <h3 style={{ fontSize: 26, fontWeight: 800 }}>{points.totalUsed}p</h3>
         </div>
       </div>
 
-      {/* === 포인트 교환 === */}
+      {/* === 쿠폰/리워드 교환 영역 === */}
       <div
         style={{
           width: "100%",
@@ -250,16 +254,12 @@ export default function PointPage() {
         }}
       >
         <div>
-          <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>
-            포인트 교환
-          </h3>
+          <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>쿠폰/리워드 교환</h3>
           <p style={{ fontSize: 14, color: "#555" }}>
             교환 가능한 포인트: {points.current}p
           </p>
         </div>
-        <button onClick={openExchange} style={btnPrimary}>
-          교환하기
-        </button>
+        <button onClick={openCatalog} style={btnPrimary}>카탈로그 보기</button>
       </div>
 
       {/* === 포인트 내역 === */}
@@ -274,9 +274,7 @@ export default function PointPage() {
           overflowY: "auto",
         }}
       >
-        <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>
-          포인트 내역
-        </h3>
+        <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>포인트 내역</h3>
 
         <table
           style={{
@@ -317,14 +315,13 @@ export default function PointPage() {
         </table>
       </div>
 
-      {/* === 교환 모달 === */}
-      {isExchangeOpen && (
-        <ExchangeModal
+      {/* === 카탈로그 모달 === */}
+      {isCatalogOpen && (
+        <RewardCatalogModal
           current={points.current}
-          amount={exchangeAmount}
-          setAmount={setExchangeAmount}
-          onClose={closeExchange}
-          onConfirm={confirmExchange}
+          items={REWARDS}
+          onClose={closeCatalog}
+          onRedeem={redeemReward}
         />
       )}
 
@@ -332,6 +329,7 @@ export default function PointPage() {
       {isSuccessOpen && (
         <ExchangeSuccessModal
           amount={exchangedAmount}
+          itemName={exchangedItemName}
           onClose={() => setIsSuccessOpen(false)}
         />
       )}
@@ -339,16 +337,8 @@ export default function PointPage() {
   );
 }
 
-/* ---------------- 교환 모달 ---------------- */
-function ExchangeModal({ current, amount, setAmount, onClose, onConfirm }) {
-  const btnPrimary = {
-    backgroundColor: "#FFD858",
-    border: "1px solid #000",
-    borderRadius: "8px",
-    padding: "10px 20px",
-    fontWeight: 700,
-    cursor: "pointer",
-  };
+/* ---------------- 리워드 카탈로그 모달 ---------------- */
+function RewardCatalogModal({ current, items, onClose, onRedeem }) {
   const btnText = {
     background: "transparent",
     border: "none",
@@ -356,18 +346,6 @@ function ExchangeModal({ current, amount, setAmount, onClose, onConfirm }) {
     cursor: "pointer",
     fontWeight: 600,
   };
-
-  const clamp = (v) => {
-    const n = Math.floor(Number(v) || 0);
-    if (n < 0) return 0;
-    if (n > current) return current;
-    return n;
-  };
-
-  const quick = (v) => setAmount(clamp(v));
-  const onInput = (e) => setAmount(clamp(e.target.value));
-
-  const disabled = amount <= 0 || amount > current;
 
   return (
     <div
@@ -387,13 +365,12 @@ function ExchangeModal({ current, amount, setAmount, onClose, onConfirm }) {
         style={{
           position: "relative",
           background: "#fff",
-          padding: "40px 60px",
+          padding: "28px 28px 32px",
           borderRadius: "16px",
           boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
-          textAlign: "center",
-          minWidth: 420,
-          maxWidth: 520,
-          width: "calc(100vw - 32px)",
+          width: "min(900px, 96vw)",
+          maxHeight: "90vh",
+          overflowY: "auto",
         }}
       >
         {/* 닫기 */}
@@ -418,90 +395,87 @@ function ExchangeModal({ current, amount, setAmount, onClose, onConfirm }) {
           ✕
         </button>
 
-        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 10 }}>포인트 교환</h3>
+        <h3 style={{ fontSize: 20, fontWeight: 800, margin: "0 0 6px" }}>
+          쿠폰/리워드 카탈로그
+        </h3>
         <p style={{ color: "#555", marginBottom: 16 }}>
-          교환 가능한 포인트: <b>{current}p</b>
+          보유 포인트: <b>{current}p</b>
         </p>
 
-        {/* 금액 입력 */}
-        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 12 }}>
-          <input
-            type="number"
-            value={amount}
-            onChange={onInput}
-            min={0}
-            max={current}
-            step={1}
-            style={{
-              width: 160,
-              padding: "10px",
-              borderRadius: 8,
-              border: "1px solid #ccc",
-              textAlign: "right",
-              fontSize: 16,
-            }}
-          />
-          <span style={{ alignSelf: "center", fontWeight: 700 }}>p</span>
+        {/* 그리드 */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gap: 14,
+          }}
+        >
+          {items.map((it) => {
+            const disabled = it.price > current;
+            return (
+              <div
+                key={it.id}
+                style={{
+                  border: "1px solid #000",
+                  borderRadius: 12,
+                  padding: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                  minHeight: 160,
+                  background: "#fff",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      display: "inline-block",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      background: "#FFD858",
+                      border: "1px solid #000",
+                      borderRadius: 10,
+                      padding: "2px 8px",
+                      marginBottom: 8,
+                    }}
+                  >
+                    {it.price}p
+                  </div>
+                  <h4 style={{ margin: "6px 0 6px", fontSize: 16, fontWeight: 800 }}>
+                    {it.name}
+                  </h4>
+                  <p style={{ color: "#555", fontSize: 13, lineHeight: 1.4 }}>
+                    {it.desc}
+                  </p>
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    onClick={() => onRedeem?.(it)}
+                    disabled={disabled}
+                    style={{
+                      backgroundColor: "#000",
+                      color: "#fff",
+                      border: "1px solid #000",
+                      borderRadius: 10,
+                      padding: "8px 12px",
+                      fontWeight: 700,
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      width: "100%",
+                      opacity: disabled ? 0.35 : 1,
+                    }}
+                    title={disabled ? "포인트가 부족합니다." : "교환하기"}
+                  >
+                    {disabled ? "포인트 부족" : "교환하기"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        {/* 빠른 선택 */}
-        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 16 }}>
-          {[10, 20, 50].map((v) => (
-            <button
-              key={v}
-              onClick={() => quick(v)}
-              style={{
-                background: "#fff",
-                border: "1px solid #000",
-                borderRadius: "20px",
-                padding: "6px 14px",
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              {v}p
-            </button>
-          ))}
-          <button
-            onClick={() => quick(current)}
-            style={{
-              background: "#fff",
-              border: "1px solid #000",
-              borderRadius: "20px",
-              padding: "6px 14px",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            전부
-          </button>
-        </div>
-
-        {/* 안내/에러 */}
-        {disabled && (
-          <p style={{ color: "#c92a2a", fontSize: 12, marginBottom: 8 }}>
-            {amount <= 0 ? "1p 이상 입력해 주세요." : "보유 포인트를 초과했습니다."}
-          </p>
-        )}
-
-        {/* 액션 */}
-        <div>
-          <button
-            onClick={onConfirm}
-            disabled={disabled}
-            style={{
-              ...btnPrimary,
-              opacity: disabled ? 0.6 : 1,
-              cursor: disabled ? "not-allowed" : "pointer",
-            }}
-          >
-            교환하기
-          </button>
-          <button onClick={onClose} style={btnText}>
-            닫기
-          </button>
+        <div style={{ marginTop: 12, textAlign: "right" }}>
+          <button onClick={onClose} style={btnText}>닫기</button>
         </div>
       </div>
     </div>
@@ -509,10 +483,10 @@ function ExchangeModal({ current, amount, setAmount, onClose, onConfirm }) {
 }
 
 /* -------------- 교환 완료 모달 -------------- */
-function ExchangeSuccessModal({ amount, onClose }) {
+function ExchangeSuccessModal({ amount, itemName, onClose }) {
   const btnPrimary = {
     backgroundColor: "#FFD858",
-    border: "none",              // 깔끔한 노란 버튼 (로그아웃 모달과 톤 매칭)
+    border: "none",
     borderRadius: "10px",
     padding: "10px 20px",
     fontWeight: 800,
@@ -546,16 +520,22 @@ function ExchangeSuccessModal({ amount, onClose }) {
           border: "1px solid #000",
           borderRadius: 12,
           padding: 20,
-          width: 360,
+          width: 380,
           maxWidth: "90vw",
           boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
           textAlign: "left",
         }}
       >
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>교환 완료</h3>
-        <p style={{ margin: "10px 0 0", color: "#333", lineHeight: 1.5 }}>
-          {amount}p를 성공적으로 교환했습니다.
+        <p style={{ margin: "10px 0 0", color: "#333", lineHeight: 1.6 }}>
+          <b>{itemName}</b>을(를) {amount}p로 교환했습니다.
         </p>
+        {/* 실제 서비스라면 쿠폰코드/유효기간 등을 여기 표기 */}
+        {itemName === "복권 긁기 이용권" && (
+          <p style={{ margin: "6px 0 0", color: "#666", fontSize: 13 }}>
+            팁: 미션 페이지의 <b>복권 긁기</b>에서 오늘의 행운을 확인해 보세요!
+          </p>
+        )}
 
         <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button style={btnPrimary} onClick={onClose}>확인</button>
