@@ -228,7 +228,7 @@ const ChatbotPage = () => {
       if (import.meta.env.DEV) console.error("[chat] streaming failed:", streamErr);
       // 스트리밍 실패 시 JSON 폴백
       try {
-        const data = await askChat({ question: q, stream: false, chat_history: chatHistory });
+        const data = await askChat({ question: q, stream: false, chatHistory: chatHistory });
         appendBot(cleanText(data.answer ?? JSON.stringify(data)));
         if (data.chat_history) {
           setChatHistory(data.chat_history);
