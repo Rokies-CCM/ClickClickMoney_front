@@ -1,5 +1,6 @@
 // src/pages/MissionPage.jsx
 import { useState, useEffect } from "react";
+import { fetchQuizBatch, submitQuizAnswer } from "../api/quiz"; // ✅ 퀴즈 API 연동
 
 const TABS = ["전체", "완료", "진행중"];
 
@@ -152,7 +153,6 @@ const MissionPage = ({ go }) => {
     setMissions((prev) => prev.map((m) => {
       if (m.id !== missionId) return m;
       if (m.lastCompletedDate === today && m.progress >= m.total) return m; // 오늘 이미 완료
-      // 적립 후 완료 표시
       creditPoints(m.point, "미션 완료 보상");
       return { ...m, progress: m.total, lastCompletedDate: today };
     }));
@@ -458,45 +458,108 @@ function InfoModal({ title = "안내", onClose, children }) {
   );
 }
 
-/* ---------------- 퀴즈 모달 ---------------- */
+/* ---------------- 퀴즈 모달 (API 연동) ---------------- */
 function QuizModal({ mission, onClose, onComplete }) {
-  const questions = [
-    { q: "다음 중 '고정비'의 예로 가장 적절한 것은?", options: ["월세", "식비", "택시비", "카페 이용"], a: 0 },
-    { q: "비상자금 권장 수준은?", options: ["1개월 생활비", "3~6개월 생활비", "12개월 생활비", "필요없음"], a: 1 },
-    {
-      q: "신용카드 할부 결제에 대한 설명으로 옳은 것은?",
-      options: [
-        "항상 무이자라서 이자 부담이 없다",
-        "이자나 수수료 부담이 있을 수 있다",
-        "할부는 신용점수에 영향을 전혀 주지 않는다",
-        "현금영수증이 안된다",
-      ],
-      a: 1,
-    },
-  ];
+  // 서버에서 내려온 문제들
+  const [questions, setQuestions] = useState([]); // [{question_id, question, options:{A..D}, ...}]
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
+  // 사용자가 고른 답 (question_id -> "A"|"B"|"C"|"D")
   const [answers, setAnswers] = useState({});
+  // 채점 결과 (question_id -> {is_correct, correct_key, explanation, points_awarded, streak})
+  const [results, setResults] = useState({});
   const [submitted, setSubmitted] = useState(false);
-  const correctCount =
-    Object.keys(answers).length === questions.length
-      ? questions.reduce((acc, q, i) => acc + (answers[i] === q.a ? 1 : 0), 0)
-      : 0;
 
-  const handleSubmit = () => {
-    if (Object.keys(answers).length < questions.length) {
+  // 문제 로드: 태그는 미션 타입에 맞춰 적당히 넣을 수 있음
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setLoadError("");
+        // 예: quiz 미션은 "points" 태그로
+        const tag = mission?.type === "quiz" ? "points" : null;
+        const qs = await fetchQuizBatch(tag);
+        if (!alive) return;
+        setQuestions(qs);
+        setAnswers({});
+      } catch (e) {
+        if (!alive) return;
+        setLoadError(e?.message || "문제를 불러오지 못했습니다.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [mission]);
+
+  const allAnswered =
+    questions.length > 0 &&
+    questions.every((q) => typeof answers[q.question_id] === "string");
+
+  const correctCount = Object.values(results).reduce(
+    (acc, r) => acc + (r?.is_correct ? 1 : 0),
+    0
+  );
+
+  const handleSubmit = async () => {
+    if (!allAnswered) {
       alert("모든 문항에 응답해 주세요.");
       return;
     }
-    setSubmitted(true);
+    try {
+      const graded = {};
+      await Promise.all(
+        questions.map(async (q) => {
+          const userAns = answers[q.question_id];
+          const r = await submitQuizAnswer(q.question_id, userAns);
+          graded[q.question_id] = r;
+        })
+      );
+      setResults(graded);
+      setSubmitted(true);
+    } catch (e) {
+      alert(e?.message || "채점 중 오류가 발생했습니다.");
+    }
   };
 
   const handleFinish = () => {
+    // 정책: 2문제 이상 맞아야 완료
     if (correctCount >= 2) {
-      onComplete();  // ✅ 바로 완료
+      onComplete();
     } else {
       alert("두 문제 이상 맞춰야 완료할 수 있어요.");
     }
   };
+
+  const setAnswer = (qid, choice) => {
+    setAnswers((prev) => ({ ...prev, [qid]: choice }));
+  };
+
+  if (loading) {
+    return (
+      <>
+        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>
+          {mission.title}
+        </h3>
+        <p style={{ color: "#555", marginBottom: 16 }}>{mission.desc}</p>
+        <p>문제를 불러오는 중...</p>
+      </>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <>
+        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>
+          {mission.title}
+        </h3>
+        <p style={{ color: "#c92a2a" }}>{loadError}</p>
+        <button onClick={onClose} style={btnText}>닫기</button>
+      </>
+    );
+  }
 
   return (
     <>
@@ -506,60 +569,70 @@ function QuizModal({ mission, onClose, onComplete }) {
       <p style={{ color: "#555", marginBottom: 16 }}>{mission.desc}</p>
 
       <div style={{ textAlign: "left", marginBottom: 16 }}>
-        {questions.map((q, idx) => (
-          <div
-            key={idx}
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: 10,
-              padding: 14,
-              marginBottom: 10,
-            }}
-          >
-            <p style={{ fontWeight: 700, marginBottom: 8 }}>
-              Q{idx + 1}. {q.q}
-            </p>
-            <div style={{ display: "grid", gap: 6 }}>
-              {q.options.map((opt, oi) => (
-                <label
-                  key={oi}
+        {questions.map((q, idx) => {
+          const letters = ["A", "B", "C", "D"];
+          return (
+            <div
+              key={q.question_id}
+              style={{
+                border: "1px solid #ddd",
+                borderRadius: 10,
+                padding: 14,
+                marginBottom: 10,
+              }}
+            >
+              <p style={{ fontWeight: 700, marginBottom: 8 }}>
+                Q{idx + 1}. {q.question}
+              </p>
+              <div style={{ display: "grid", gap: 6 }}>
+                {letters.map((L) => (
+                  <label
+                    key={L}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name={`q-${q.question_id}`}
+                      checked={answers[q.question_id] === L}
+                      onChange={() => setAnswer(q.question_id, L)}
+                    />
+                    <span>{q.options?.[L]}</span>
+                  </label>
+                ))}
+              </div>
+
+              {submitted && results[q.question_id] && (
+                <p
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    cursor: "pointer",
+                    marginTop: 8,
+                    color: results[q.question_id].is_correct ? "#2b8a3e" : "#c92a2a",
+                    fontWeight: 700,
                   }}
                 >
-                  <input
-                    type="radio"
-                    name={`q${idx}`}
-                    checked={answers[idx] === oi}
-                    onChange={() => setAnswers((prev) => ({ ...prev, [idx]: oi }))}
-                  />
-                  <span>{opt}</span>
-                </label>
-              ))}
+                  {results[q.question_id].is_correct
+                    ? `정답! (+${results[q.question_id].points_awarded}p)`
+                    : `오답 (정답: ${results[q.question_id].correct_key})`}
+                  <br />
+                  <span style={{ fontWeight: 400, color: "#555" }}>
+                    {results[q.question_id].explanation}
+                  </span>
+                </p>
+              )}
             </div>
-            {submitted && (
-              <p
-                style={{
-                  marginTop: 8,
-                  color: answers[idx] === q.a ? "#2b8a3e" : "#c92a2a",
-                  fontWeight: 700,
-                }}
-              >
-                {answers[idx] === q.a ? "정답!" : "오답"}
-              </p>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {submitted ? (
+      {submitted && (
         <p style={{ marginBottom: 14 }}>
-          점수: <b>{correctCount}</b> / {questions.length}
+          맞춘 개수: <b>{correctCount}</b> / {questions.length}
         </p>
-      ) : null}
+      )}
 
       <div>
         {!submitted ? (
@@ -595,7 +668,7 @@ function VisitModal({ mission, onClose, onComplete }) {
       alert("먼저 '새 탭으로 방문'을 눌러 페이지를 방문해 주세요.");
       return;
     }
-    onComplete();  // ✅ 방문 완료 = 최종 완료
+    onComplete();  // 방문 완료 = 최종 완료
   };
 
   return (

@@ -214,4 +214,6 @@ const DashboardPage = ({ go }) => {
   );
 };
 
+//수정용 커밋
+
 export default DashboardPage;
