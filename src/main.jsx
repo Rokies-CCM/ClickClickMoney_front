@@ -1,4 +1,3 @@
-// src/main.jsx (또는 index.jsx)
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";

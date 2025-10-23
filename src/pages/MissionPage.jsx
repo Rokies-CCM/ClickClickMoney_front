@@ -1,6 +1,8 @@
 // src/pages/MissionPage.jsx
-import { useState, useEffect } from "react";
-import { fetchQuizBatch, submitQuizAnswer } from "../api/quiz"; // ✅ 퀴즈 API 연동
+import { useState, useEffect, useRef } from "react";
+import { completeMission, submitTodayQuiz, playDailyLottery } from "../api/missions"; // ✅ 복권 API 포함
+import { fetchQuizBatch, submitQuizAnswer } from "../api/quiz";
+import { me } from "../api/auth";
 
 const TABS = ["전체", "완료", "진행중"];
 
@@ -13,41 +15,11 @@ const getTabFromHash = () => {
   return TABS.includes(tab) ? tab : "전체";
 };
 
-// 포인트 지갑 키 / 미션 상태 키
-const WALLET_KEY = "points_wallet_v1";
-const MISSIONS_KEY = "missions_state_v2"; // ← 버전업(기존 v1과 충돌 방지)
+// 미션 상태 키(클라이언트 보존용) - 사용자별 분리
+const BASE_MISSIONS_KEY = "missions_state_v2";
 
-/* ---------- 포인트 적립(로컬 저장) ---------- */
-function creditPoints(amount, reason = "미션 완료 보상") {
-  const DEF = { current: 0, totalEarned: 0, totalUsed: 0, history: [] };
-  let w = DEF;
-  try {
-    const raw = localStorage.getItem(WALLET_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      w = {
-        current: Number(parsed.current || 0),
-        totalEarned: Number(parsed.totalEarned || 0),
-        totalUsed: Number(parsed.totalUsed || 0),
-        history: Array.isArray(parsed.history) ? parsed.history : [],
-      };
-    }
-  } catch {
-    w = DEF;
-  }
-
-  const today = new Date().toISOString().split("T")[0];
-  const next = {
-    ...w,
-    current: w.current + Number(amount || 0),
-    totalEarned: w.totalEarned + Number(amount || 0),
-    history: [
-      ...w.history,
-      { date: today, desc: reason, change: `+${amount}p`, amount: `+${amount}` },
-    ],
-  };
-  localStorage.setItem(WALLET_KEY, JSON.stringify(next));
-}
+// 포인트 탭 ↔ 미션 탭 브리지(사용자별로 신호 저장: 복권/교환 완료)
+const BRIDGE_KEY = "mission_bridge_v1";
 
 /* ---------- 공용 버튼 스타일 ---------- */
 const btnPrimary = {
@@ -66,48 +38,146 @@ const btnText = {
   fontWeight: 600,
 };
 
+const todayStr = () => new Date().toISOString().split("T")[0];
+
+/** 오늘 날짜 기준으로 상태 정규화(하루 단위 리셋)
+ * - 오늘이 아니면 progress=0, lastCompletedDate=null
+ */
+function normalizeForToday(list) {
+  const today = todayStr();
+  return (list || []).map((m) => {
+    if (m.lastCompletedDate === today) return m;
+    return { ...m, progress: 0, lastCompletedDate: null };
+  });
+}
+
+// 브리지 유틸(사용자별 저장)
+function readBridge(username) {
+  try {
+    const raw = localStorage.getItem(`${BRIDGE_KEY}::${username || "guest"}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    console.warn("bridge read error", e);
+    return null;
+  }
+}
+function writeBridge(username, obj) {
+  try {
+    localStorage.setItem(`${BRIDGE_KEY}::${username || "guest"}`, JSON.stringify(obj || {}));
+  } catch (e) {
+    console.warn("bridge write error", e);
+  }
+}
+
 const MissionPage = ({ go }) => {
   // 탭 상태
   const [activeTab, setActiveTab] = useState(getTabFromHash());
 
-  // 모달 상태
+  // 모달/선택 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalKind, setModalKind] = useState(null);     // 'quiz' | 'visit' | 'budget' | 'expense' | 'exchange' | 'lottery' | 'info'
+  const [modalKind, setModalKind] = useState(null); // 'quiz' | 'visit' | 'budget' | 'expense' | 'exchange' | 'lottery' | 'info'
   const [selectedMission, setSelectedMission] = useState(null);
   const [infoMessage, setInfoMessage] = useState("");
 
-  // 기본 미션(총 6개)
+  // 사용자/스토리지
+  const [username, setUsername] = useState("guest");
+  const [storageKey, setStorageKey] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  // 기본 미션(총 6개) — 복권 보상 표시는 카드에서 '랜덤'으로 처리
   const defaultMissions = [
-    { id: 101, type: "quiz", title: "금융 퀴즈", desc: "오늘의 금융 상식 퀴즈 3문제 풀기", progress: 0, total: 3, point: 30, lastCompletedDate: null },
-    { id: 102, type: "visit", title: "웹 페이지 방문", desc: "웹 페이지 방문 후 체크인 하기", progress: 0, total: 1, point: 20, lastCompletedDate: null },
-    { id: 103, type: "budget", title: "이번달 예산 입력", desc: "이번달 예산을 입력하고 저장하기", progress: 0, total: 1, point: 20, lastCompletedDate: null },
-    { id: 104, type: "expense", title: "지출내역 입력", desc: "지출 내역 1건 입력하고 저장하기", progress: 0, total: 1, point: 20, lastCompletedDate: null },
-    { id: 105, type: "exchange", title: "포인트 교환하기", desc: "포인트 일부를 교환 처리하기", progress: 0, total: 1, point: 10, lastCompletedDate: null },
-    { id: 106, type: "lottery", title: "복권 긁기", desc: "오늘의 행운! 복권 긁기", progress: 0, total: 1, point: 10, lastCompletedDate: null },
+    { id: 101, type: "quiz",     title: "금융 퀴즈",       desc: "오늘의 금융 상식 퀴즈 3문제 풀기", progress: 0, total: 3, point: 30, lastCompletedDate: null },
+    { id: 102, type: "visit",    title: "웹 페이지 방문",   desc: "웹 페이지 방문 후 체크인 하기",     progress: 0, total: 1, point: 20, lastCompletedDate: null },
+    { id: 103, type: "budget",   title: "이번달 예산 입력", desc: "이번달 예산을 입력하고 저장하기",   progress: 0, total: 1, point: 20, lastCompletedDate: null },
+    { id: 104, type: "expense",  title: "지출내역 입력",     desc: "지출 내역 1건 입력하고 저장하기",   progress: 0, total: 1, point: 20, lastCompletedDate: null },
+    { id: 105, type: "exchange", title: "포인트 교환하기",   desc: "포인트 일부를 교환 처리하기",       progress: 0, total: 1, point: 10, lastCompletedDate: null },
+    { id: 106, type: "lottery",  title: "복권 긁기",       desc: "오늘의 행운! 복권 긁기 (하루 1회 무료)", progress: 0, total: 1, point: 0,  lastCompletedDate: null },
   ];
 
   const [missions, setMissions] = useState(defaultMissions);
-
-  // 초기 로드: 저장된 미션 상태 반영
+  const finalizingRef = useRef(new Set()); // finalizeMission 중복 호출 막기
+  const bridgeSyncingRef = useRef(false);  // trySyncBridge 동시 실행 막기
+  
+  /* === 사용자명 로드 → 스토리지 키 결정 === */
   useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const name = await me(); // 백엔드: username 문자열
+        if (!alive) return;
+        const u = name || "guest";
+        setUsername(u);
+        setStorageKey(`${BASE_MISSIONS_KEY}::${u}`);
+      } catch (e) {
+        console.warn("me() failed, fallback guest", e);
+        if (!alive) return;
+        setUsername("guest");
+        setStorageKey(`${BASE_MISSIONS_KEY}::guest`);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  /* === 스토리지에서 미션 상태 로드(사용자별) + 레거시 마이그레이션 === */
+  useEffect(() => {
+    if (!storageKey) return;
+    const isGuest = !username || username === "guest";
     try {
-      const raw = localStorage.getItem(MISSIONS_KEY);
+      // 1) 사용자별 키 우선
+      const raw = localStorage.getItem(storageKey);
       if (raw) {
         const saved = JSON.parse(raw);
         if (Array.isArray(saved)) {
           const byId = new Map(saved.map((m) => [m.id, m]));
           const merged = defaultMissions.map((d) => byId.get(d.id) ?? d);
-          setMissions(merged);
+          const normalized = normalizeForToday(merged);
+          setMissions(normalized);
+          localStorage.setItem(storageKey, JSON.stringify(normalized)); // 동기화
+          setLoaded(true);
+          return;
         }
       }
-    } catch { /* ignore */ }
-  }, []);
 
-  // 변경 시 저장
+      // 2) 레거시 키 마이그레이션은 guest일 때만 수행
+      if (isGuest) {
+        const legacyRaw = localStorage.getItem(BASE_MISSIONS_KEY);
+        if (legacyRaw) {
+          const saved = JSON.parse(legacyRaw);
+          if (Array.isArray(saved)) {
+            const byId = new Map(saved.map((m) => [m.id, m]));
+            const merged = defaultMissions.map((d) => byId.get(d.id) ?? d);
+            const normalized = normalizeForToday(merged);
+            setMissions(normalized);
+            localStorage.setItem(storageKey, JSON.stringify(normalized));
+            setLoaded(true);
+            return;
+          }
+        }
+      }
+
+      // 3) 아무것도 없으면 기본값
+      const normalized = normalizeForToday(defaultMissions);
+      setMissions(normalized);
+      localStorage.setItem(storageKey, JSON.stringify(normalized));
+      setLoaded(true);
+    } catch (e) {
+      console.warn("load missions failed", e);
+      const normalized = normalizeForToday(defaultMissions);
+      setMissions(normalized);
+      try { localStorage.setItem(storageKey, JSON.stringify(normalized)); } catch (e2) { console.warn(e2); }
+      setLoaded(true);
+    }
+  }, [storageKey, username]);
+
+  /* === 변경 시 저장(사용자별 키) === */
   useEffect(() => {
-    try { localStorage.setItem(MISSIONS_KEY, JSON.stringify(missions)); }
-    catch { /* ignore */ }
-  }, [missions]);
+    if (!loaded || !storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(missions));
+    } catch (e) {
+      console.warn("save missions failed", e);
+    }
+  }, [missions, loaded, storageKey]);
 
   // 해시 변경될 때 탭 동기화
   useEffect(() => {
@@ -130,57 +200,120 @@ const MissionPage = ({ go }) => {
     return true;
   });
 
-  const todayStr = () => new Date().toISOString().split("T")[0];
-
-  // 공용: 진행률 증가 + (선택) 오늘 잠금
+  // 공용: 진행률 증가 + (선택) 오늘 잠금(lastCompletedDate 세팅)
   const applyProgress = (missionId, delta, lockToday = false) => {
     const today = todayStr();
-    setMissions((prev) =>
-      prev.map((m) => {
+    setMissions((prev) => {
+      const next = prev.map((m) => {
         if (m.id !== missionId) return m;
-        const nextProgress = Math.min(m.total, m.progress + Math.max(0, delta || 0));
+        const nextProgress = Math.min(m.total, (m.progress || 0) + Math.max(0, delta || 0));
         return {
           ...m,
           progress: nextProgress,
           lastCompletedDate: lockToday ? today : m.lastCompletedDate,
         };
-      })
-    );
+      });
+      try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next)); } catch (e) { console.warn(e); }
+      return next;
+    });
+  };
+  
+    // 서버 적립 호출 + 완료 마킹(즉시 반영) — 복권 제외
+  const finalizeMission = async (missionId, _reasonOverride, overridePoints = null) => {
+    const m = missions.find((x) => x.id === missionId);
+    if (!m || m.type === "lottery") return;
+
+    // ✅ 이미 오늘 완료된 미션이면 API 호출하지 않고 안내만 표시
+    const today = todayStr();
+    if (m.lastCompletedDate === today && m.progress >= m.total) {
+      setSelectedMission(m);
+      setInfoMessage("오늘은 이미 완료한 미션이에요. 내일 다시 도전해 주세요!");
+      setModalKind("info");
+      setIsModalOpen(true);
+      return;
+    }
+
+    // ✅ 같은 미션에 대해 in-flight 중복 호출 방지
+    if (finalizingRef.current.has(missionId)) return;
+    finalizingRef.current.add(missionId);
+
+    try {
+      const res = await completeMission({
+        source: m.type,
+        amount: overridePoints != null ? overridePoints : m.point,
+      });
+      const granted = !!res?.claimed;
+
+      const today = todayStr();
+      setMissions((prev) => {
+        const next = prev.map((it) => (it.id !== missionId
+          ? it
+          : { ...it, progress: it.total, lastCompletedDate: today }
+        ));
+        try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next));
+        } catch (e) {
+          console.warn("localStorage sync failed (finalizeMission):", e);
+        }
+        return next;
+      });
+
+      setSelectedMission(m);
+      if (granted) {
+        const reward = overridePoints != null ? overridePoints : m.point;
+        setInfoMessage(`미션 완료! +${reward}p가 적립되었어요.`);
+      } else {
+        setInfoMessage("오늘은 이미 완료한 미션이에요. 내일 다시 도전해 주세요!");
+      }
+      setModalKind("info");
+      setIsModalOpen(true);
+    } catch (e) {
+      alert(e?.message || "미션 완료 처리에 실패했습니다.");
+    } finally {
+      finalizingRef.current.delete(missionId);
+    }
   };
 
-  // MissionPage 컴포넌트 내부: finalizeMission 교체
-  const finalizeMission = (missionId, reasonOverride, overridePoints = null) => {
-    const today = new Date().toISOString().split("T")[0];
-    setMissions((prev) =>
-      prev.map((m) => {
-        if (m.id !== missionId) return m;
-        if (m.lastCompletedDate === today && m.progress >= m.total) return m; // 오늘 이미 완료
-        // ✅ 포인트: overridePoints가 오면 그 값으로, 아니면 기본 m.point
-        creditPoints(
-          overridePoints != null ? overridePoints : m.point,
-          reasonOverride || "미션 완료 보상"
-        );
-        return { ...m, progress: m.total, lastCompletedDate: today };
-      })
+  // 복권(하루 1회 무료) 완료 처리
+  const handleDailyLotteryComplete = (reward, alreadyClaimed = false) => {
+    const lot = missions.find((m) => m.type === "lottery");
+    if (!lot) return;
+    const today = todayStr();
+
+    setMissions((prev) => {
+      const next = prev.map((m) =>
+        m.type === "lottery" ? { ...m, progress: m.total, lastCompletedDate: today } : m
+      );
+      try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next)); } catch (e) { console.warn(e); }
+      return next;
+    });
+
+    setSelectedMission(lot);
+    setInfoMessage(
+      alreadyClaimed
+        ? "오늘의 복권은 이미 긁으셨어요. 내일 다시 도전해 주세요!"
+        : `복권 결과: +${Number(reward ?? 0)}p가 적립되었어요! 🎉`
     );
-    setInfoMessage("미션이 완료되었습니다! 포인트가 적립되었어요.");
     setModalKind("info");
     setIsModalOpen(true);
   };
 
-
   // 모달 열기 (오늘 이미 완료이면 안내 모달)
   const openModalForMission = (m) => {
     const today = todayStr();
-    if (m.lastCompletedDate === today) {
+    if (m.lastCompletedDate === today && m.progress >= m.total) {
       setSelectedMission(m);
-      setInfoMessage("오늘은 이미 진행/완료한 미션이에요. 내일 다시 도전해 주세요!");
+      // 복권은 안내 문구를 별도로
+      const msg =
+        m.type === "lottery"
+          ? "오늘의 복권은 이미 긁으셨어요. 내일 다시 도전해 주세요!"
+          : "오늘은 이미 완료한 미션이에요. 내일 다시 도전해 주세요!";
+      setInfoMessage(msg);
       setModalKind("info");
       setIsModalOpen(true);
       return;
     }
     setSelectedMission(m);
-    setModalKind(m.type);
+    setModalKind(m.type === "lottery" ? "lottery" : m.type); // ✅ 복권 모달 활성화
     setIsModalOpen(true);
   };
 
@@ -192,16 +325,100 @@ const MissionPage = ({ go }) => {
     setInfoMessage("");
   };
 
-  // 퀴즈 제출 후(하루 1회 잠금): 정답 개수만큼 진행률 증가 + 오늘 잠금 + 안내 모달
-  const handleQuizSubmitted = (missionId, correctCount, totalCount) => {
-    // 진행률 반영(최대 total)
+  // 퀴즈 제출 후: 정답 수만큼 진행률 증가. 누적이 total 도달하면 서버 적립 + 완료
+  const handleQuizSubmitted = async (missionId, correctCount, totalCount) => {
+    const current = missions.find((m) => m.id === missionId);
+    if (!current) return;
+    const nextProgress = Math.min(
+      current.total,
+      (current.progress || 0) + Math.max(0, correctCount || 0)
+    );
+
+    // 진행률 반영 + 오늘 잠금
     applyProgress(missionId, correctCount, true);
-    // 제출 후에는 오늘 재도전 불가 안내
-    setInfoMessage(`오늘의 퀴즈를 완료했어요. (정답 ${correctCount}/${totalCount}) 내일 다시 도전해 주세요!`);
-    setSelectedMission((prev) => prev && { ...prev, progress: Math.min(prev.total, (prev.progress || 0) + correctCount) });
-    setModalKind("info");
-    setIsModalOpen(true);
+
+    if (nextProgress >= current.total) {
+      await finalizeMission(missionId, "퀴즈 보상");
+    } else {
+      setSelectedMission({ ...current, progress: nextProgress });
+      setInfoMessage(`퀴즈 진행률이 업데이트 되었어요. (정답 ${correctCount}/${totalCount})`);
+      setModalKind("info");
+      setIsModalOpen(true);
+    }
   };
+
+  // 포인트 탭 브리지 → 미션 탭 자동 동기화
+  const trySyncBridge = () => {
+    if (!username || !loaded) return;
+
+    // 빠른 중복 진입 방지
+    if (bridgeSyncingRef.current) return;
+    bridgeSyncingRef.current = true;
+
+    try {
+      const b = readBridge(username);
+      if (!b || b.date !== todayStr()) return;
+
+      // 1) 복권 브리지
+      if (b.lottery?.done && !b.lottery?.synced) {
+        setMissions((prev) => {
+          const today = todayStr();
+          const next = prev.map((m) =>
+            m.type === "lottery" ? { ...m, progress: m.total, lastCompletedDate: today } : m
+          );
+          try { localStorage.setItem(storageKey, JSON.stringify(next));
+          } catch (e) {
+            console.warn("localStorage sync failed (lottery):", e);
+          }
+          return next;
+        });
+        if (typeof b.lottery.reward === "number") {
+          const lot = missions.find((m) => m.type === "lottery");
+          if (lot) {
+            setSelectedMission(lot);
+            setInfoMessage(`복권 결과: +${b.lottery.reward}p가 적립되었어요! 🎉`);
+            setModalKind("info");
+            setIsModalOpen(true);
+          }
+        }
+        writeBridge(username, { ...b, lottery: { ...b.lottery, synced: true } });
+      }
+
+      // 2) 교환 브리지
+      if (b.exchange?.done && !b.exchange?.synced) {
+        const ex = missions.find((m) => m.type === "exchange");
+        if (ex && !(ex.lastCompletedDate === todayStr() && ex.progress >= ex.total)) {
+          finalizeMission(ex.id, "포인트 교환 보상").finally(() => {
+            const nb = readBridge(username) || b;
+            writeBridge(username, { ...nb, exchange: { ...nb.exchange, synced: true } });
+          });
+        } else {
+          writeBridge(username, { ...b, exchange: { ...b.exchange, synced: true } });
+        }
+      }
+    } finally {
+      bridgeSyncingRef.current = false;
+    }
+  };
+
+  // 포커스/스토리지 변경 시 자동 동기화
+  useEffect(() => {
+    const onFocus = () => trySyncBridge();
+    const onStorage = (e) => {
+      if (!e.key || !username) return;
+      if (e.key === `${BRIDGE_KEY}::${username}` || e.key === storageKey) {
+        trySyncBridge();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("storage", onStorage);
+    trySyncBridge();
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("storage", onStorage);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username, loaded, storageKey, missions]);
 
   // 카드 키보드 접근성
   const onCardKeyDown = (e, m) => {
@@ -282,7 +499,7 @@ const MissionPage = ({ go }) => {
         }}
       >
         {filteredMissions.map((m) => {
-          const percent = Math.round((m.progress / m.total) * 100);
+          const percent = Math.round(((m.progress || 0) / m.total) * 100);
           const isDone = percent >= 100;
 
           return (
@@ -345,10 +562,12 @@ const MissionPage = ({ go }) => {
                 {m.desc}
               </p>
 
-              {/* 진행률 */}
+              {/* 진행률/완료 라벨 */}
               <p style={{ fontSize: "13px", color: "#555", marginBottom: "4px" }}>
-                진행률
+                {isDone ? "완료" : "진행률"}
               </p>
+
+              {/* 진행 바 */}
               <div
                 style={{
                   backgroundColor: "#eee",
@@ -367,6 +586,8 @@ const MissionPage = ({ go }) => {
                   }}
                 />
               </div>
+
+              {/* 수치 */}
               <p style={{ fontSize: "13px", color: "#555" }}>
                 {m.progress}/{m.total}
               </p>
@@ -381,7 +602,7 @@ const MissionPage = ({ go }) => {
                 }}
               >
                 <span style={{ fontSize: "14px", fontWeight: 600 }}>
-                  {m.point} p
+                  {m.type === "lottery" ? "랜덤" : `${m.point} p`}
                 </span>
                 <span style={{ fontSize: 12, color: "#666" }}>자세히 보기 ▸</span>
               </div>
@@ -436,21 +657,14 @@ const MissionPage = ({ go }) => {
             />
           )}
 
+          {/* ✅ 하루 1회 무료 복권: 서버 호출 */}
           {modalKind === "lottery" && (
             <LotteryModal
               mission={selectedMission}
               onClose={closeModal}
-              // 랜덤 보상 포인트를 finalizeMission에 전달
-              onComplete={(reward) =>
-                finalizeMission(
-                  selectedMission.id,
-                  `복권 긁기 보상 (+${reward}p)`,
-                  reward
-                )
-              }
+              onComplete={handleDailyLotteryComplete}
             />
           )}
-
 
           {modalKind === "info" && (
             <InfoModal onClose={closeModal} title="안내">
@@ -543,7 +757,7 @@ function InfoModal({ title = "안내", onClose, children }) {
   );
 }
 
-/* ---------------- 퀴즈 모달 (하루 1회, 정답수만큼 진행률) ---------------- */
+/* ---------------- 퀴즈 모달 (서버 출제/채점, DB 저장) ---------------- */
 function QuizModal({ mission, onClose, onSubmitted }) {
   // 서버에서 내려온 문제들
   const [questions, setQuestions] = useState([]); // [{question_id, question, options:{A..D}, ...}]
@@ -562,7 +776,6 @@ function QuizModal({ mission, onClose, onSubmitted }) {
       try {
         setLoading(true);
         setLoadError("");
-        // 태그 예시: quiz는 "points"로
         const tag = mission?.type === "quiz" ? "points" : null;
         const qs = await fetchQuizBatch(tag);
         if (!alive) return;
@@ -577,7 +790,9 @@ function QuizModal({ mission, onClose, onSubmitted }) {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [mission]);
 
   const allAnswered =
@@ -610,10 +825,35 @@ function QuizModal({ mission, onClose, onSubmitted }) {
     }
   };
 
-  const handleFinish = () => {
-    // 제출이 끝나면, 정답 개수만큼 진행률 증가 + 오늘 잠금 + 안내 모달
+  const handleFinish = async () => {
+    // ✅ DB에 시도/점수 저장
+    try {
+      const total = questions.length;
+      const score = total > 0 ? Math.round((correctCount * 100) / total) : 0;
+      const meta = {
+        questions: questions.map((q) => ({
+          id: q.question_id,
+          question: q.question,
+          options: q.options,
+        })),
+        answers,
+        results,
+      };
+      await submitTodayQuiz({
+        score,
+        correctCount: correctCount,
+        totalCount: total,
+        passed: score >= 70,                 // 서버에서도 다시 판정하지만 명시 전달
+        metaJson: JSON.stringify(meta),      // LONGTEXT 컬럼에 저장됨
+      });
+    } catch (e) {
+      // 저장 실패해도 UX는 계속 진행 (미션 진행률 업데이트)
+      console.warn("submitTodayQuiz failed:", e);
+    }
+
+    // 제출이 끝나면, 정답 수만큼 진행률 증가 (부모에서 완료/안내 처리)
     onSubmitted?.(correctCount, questions.length);
-    onClose?.(); // 퀴즈 모달 닫고, 부모에서 안내 모달 오픈
+    onClose?.(); // 퀴즈 모달 닫고 부모에서 info/완료 처리
   };
 
   const setAnswer = (qid, choice) => {
@@ -807,8 +1047,10 @@ function BudgetModal({ mission, onClose, onComplete }) {
     }
     try {
       localStorage.setItem("budget_current_month", String(n));
-    } catch {
-      //ignore
+      // 가계부 화면이 즉시 반영하도록 알림 이벤트 발행(선택적으로 수신)
+      window.dispatchEvent(new CustomEvent("budget:saved", { detail: { amount: n } }));
+    } catch (e) {
+      console.warn(e);
     }
     onClose?.();
     onComplete?.();
@@ -847,42 +1089,86 @@ function BudgetModal({ mission, onClose, onComplete }) {
 
 /* ---------------- 지출내역 입력 모달 ---------------- */
 function ExpenseModal({ mission, onClose, onComplete }) {
-  const [title, setTitle] = useState("");
+  const CATEGORIES = [
+    "생활", "식비", "교통", "주거", "통신", "쇼핑", "카페/간식", "의료/건강", "문화/여가", "기타"
+  ];
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [category, setCategory] = useState("");
+  const [date, setDate] = useState(today);
   const [amount, setAmount] = useState("");
+  const [memo, setMemo] = useState("");
 
   const save = () => {
     const n = Math.max(0, Math.floor(Number(amount) || 0));
-    if (!title.trim()) {
-      alert("지출 항목을 입력해 주세요.");
+
+    if (!category) {
+      alert("카테고리를 선택해 주세요.");
+      return;
+    }
+    if (!date) {
+      alert("날짜를 선택해 주세요.");
       return;
     }
     if (n <= 0) {
       alert("0보다 큰 금액을 입력해 주세요.");
       return;
     }
+
+    const item = {
+      category,
+      date: String(date).slice(0, 10),
+      amount: n,
+      memo: (memo || "").trim(),
+    };
+
     try {
-      const raw = localStorage.getItem("expenses") || "[]";
-      const arr = JSON.parse(raw);
-      arr.push({ title: title.trim(), amount: n, date: new Date().toISOString().slice(0, 10) });
-      localStorage.setItem("expenses", JSON.stringify(arr));
-    } catch {
-      //
+      // ✅ 새 포맷으로 로컬 보관(가계부 페이지가 우선적으로 동기화/업로드함)
+      const KEY = "mission_expenses_v2";
+      let arr = [];
+      try {
+        arr = JSON.parse(localStorage.getItem(KEY) || "[]");
+      } catch {
+        arr = [];
+      }
+      arr.push(item);
+      localStorage.setItem(KEY, JSON.stringify(arr));
+
+      // ✅ 가계부 화면이 즉시 반영하도록 이벤트 발행
+      window.dispatchEvent(new CustomEvent("expenses:saved", { detail: { item } }));
+    } catch (e) {
+      console.warn(e);
     }
+
     onClose?.();
-    onComplete?.();
+    onComplete?.(); // 기존처럼 미션 완료 처리(포인트 지급 흐름) 유지
   };
 
   return (
     <>
       <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>{mission.title}</h3>
       <p style={{ color: "#555", marginBottom: 16 }}>{mission.desc}</p>
+
       <div style={{ display: "grid", gap: 10, marginBottom: 12 }}>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          style={{ padding: "10px", borderRadius: 8, border: "1px solid #ccc", fontSize: 16 }}
+        >
+          <option value="">카테고리 선택</option>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+
         <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="지출 항목"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
           style={{ padding: "10px", borderRadius: 8, border: "1px solid #ccc", fontSize: 16 }}
         />
+
         <div style={{ display: "flex", gap: 8 }}>
           <input
             type="number"
@@ -891,11 +1177,27 @@ function ExpenseModal({ mission, onClose, onComplete }) {
             min={0}
             step={1}
             placeholder="금액"
-            style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #ccc", textAlign: "right", fontSize: 16 }}
+            style={{
+              flex: 1,
+              padding: "10px",
+              borderRadius: 8,
+              border: "1px solid #ccc",
+              textAlign: "right",
+              fontSize: 16,
+            }}
           />
           <span style={{ alignSelf: "center", fontWeight: 700 }}>원</span>
         </div>
+
+        <input
+          type="text"
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+          placeholder="메모 (선택)"
+          style={{ padding: "10px", borderRadius: 8, border: "1px solid #ccc", fontSize: 16 }}
+        />
       </div>
+
       <div>
         <button onClick={save} style={btnPrimary}>저장</button>
         <button onClick={onClose} style={btnText}>닫기</button>
@@ -904,7 +1206,7 @@ function ExpenseModal({ mission, onClose, onComplete }) {
   );
 }
 
-// ExchangeMissionModal 교체
+/* ---------------- 교환 유도 모달 (포인트 화면에서 실제 교환 후 확인) ---------------- */
 function ExchangeMissionModal({ mission, onClose, onComplete, go }) {
   const [ack, setAck] = useState(false);
 
@@ -915,7 +1217,6 @@ function ExchangeMissionModal({ mission, onClose, onComplete, go }) {
         포인트 페이지에서 교환을 진행해 주세요. 완료했다면 아래 확인 버튼을 눌러 주세요.
       </p>
 
-      {/* ✅ 가로 한 줄 배치 */}
       <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center" }}>
         <button
           style={{ ...btnPrimary, whiteSpace: "nowrap" }}
@@ -955,20 +1256,37 @@ function ExchangeMissionModal({ mission, onClose, onComplete, go }) {
   );
 }
 
-// LotteryModal 교체
+/* ---------------- 복권 모달 (하루 1회 무료 긁기) ---------------- */
 function LotteryModal({ mission, onClose, onComplete }) {
   const [scratched, setScratched] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const scratch = () => {
-    if (scratched) return;
-    setScratched(true);
-    // ✅ 0~50p 보상
-    const reward = Math.floor(Math.random() * 51);
-    alert(`복권 결과: ${reward}p가 적립됩니다! 🎉`);
-    // ✅ 긁는 즉시 완료 처리(오늘 잠금) + 모달 닫기
-    onComplete?.(reward);
-    onClose?.();
-  };
+  const scratch = async () => {
+  if (scratched || busy) return;
+  setScratched(true);
+  setBusy(true);
+  try {
+    // 서버에 하루 1회 복권 플레이 요청
+    const res = await playDailyLottery();
+
+    // 응답 키 양쪽 호환 (PlayLotteryResponse vs ClaimResponse)
+    const reward = Number(res?.reward ?? 0);
+    const already =
+      !!(res?.alreadyPlayedToday ?? res?.alreadyClaimed ?? false);
+
+    // 부모에게 결과 전달 → 부모가 같은 모달에서 info로 전환
+    onComplete?.(reward, already);
+
+    // ⛔️ onClose() 호출하지 말 것!
+    // 부모가 modalKind를 "info"로 바꿔 같은 모달 안에서 안내를 띄웁니다.
+  } catch (e) {
+    console.warn(e);
+    alert(e?.message || "복권 처리 중 오류가 발생했습니다.");
+    setScratched(false);
+  } finally {
+    setBusy(false);
+  }
+};
 
   return (
     <>
@@ -979,7 +1297,7 @@ function LotteryModal({ mission, onClose, onComplete }) {
         <button
           onClick={scratch}
           style={{ ...btnPrimary, opacity: scratched ? 0.6 : 1, cursor: scratched ? "not-allowed" : "pointer" }}
-          disabled={scratched}
+          disabled={scratched || busy}
         >
           {scratched ? "오늘은 이미 긁었어요" : "복권 긁기"}
         </button>
@@ -991,4 +1309,3 @@ function LotteryModal({ mission, onClose, onComplete }) {
     </>
   );
 }
-

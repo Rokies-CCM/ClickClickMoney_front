@@ -5,8 +5,7 @@ import MissionCard from "../components/MissionCard";
 import PointCard from "../components/PointCard";
 import { loadBudgets } from "../api/budget";
 import { loadConsumptions } from "../api/consumption";
-
-const WALLET_KEY = "points_wallet_v1";
+import { getMyPoints, getMyPointTx } from "../api/points"; // ✅ 서버 포인트 API
 
 // 어떤 응답 형태여도 배열로 변환 ([], {content:[]}, {data:[]}, {items:[]}, {results:[]})
 const asArray = (v) => {
@@ -19,29 +18,48 @@ const asArray = (v) => {
   return [];
 };
 
-function loadWalletSafely() {
-  try {
-    const raw = localStorage.getItem(WALLET_KEY);
-    if (!raw) return { current: 0, totalEarned: 0, totalUsed: 0, history: [] };
-    const w = JSON.parse(raw);
-    return {
-      current: Number(w.current || 0),
-      totalEarned: Number(w.totalEarned || 0),
-      totalUsed: Number(w.totalUsed || 0),
-      history: Array.isArray(w.history) ? w.history : [],
-    };
-  } catch {
-    return { current: 0, totalEarned: 0, totalUsed: 0, history: [] };
-  }
-}
-
 const thisYm = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
+const labelFromReason = (value) => {
+  const key = String(value ?? "").toUpperCase();
+
+  switch (key) {
+    // 일반 미션류는 전부 "미션 완료 보상"으로
+    case "MISSION_REWARD":
+    case "QUIZ":
+    case "VISIT":
+    case "BUDGET":
+    case "EXPENSE":
+    case "EXCHANGE":
+      return "미션 완료 보상";
+
+    // 교환(차감)
+    case "REDEEM":
+      return "포인트 교환";
+
+    // 복권 표기: 과거/현재 키 모두 대응
+    case "LOTTERY_REWARD":
+    case "LOTTERY_DAILY":
+    case "LOTTERY":
+      return "복권 당첨";
+
+    default:
+      // 값 없으면 기본 문구, 있으면 언더스코어 → 공백
+      if (!value) return "포인트 변경";
+      return String(value).replace(/_/g, " ");
+  }
+};
+
 const DashboardPage = ({ go }) => {
-  const [wallet, setWallet] = useState(loadWalletSafely());
+  // ✅ 서버에서 가져오는 사용자별 포인트
+  const [balance, setBalance] = useState(0);
+  const [recentTx, setRecentTx] = useState([]); // [{delta, reason, createdAt}...]
+  const [missionAchievedCount, setMissionAchievedCount] = useState(0);
+
+  // 예산/지출
   const [budgetSum, setBudgetSum] = useState(0);
   const [expenseSum, setExpenseSum] = useState(0);
 
@@ -53,18 +71,31 @@ const DashboardPage = ({ go }) => {
     reward: 30,
   };
 
-  // 포인트 지갑 최신화
+  // ✅ 포인트 요약 + 내역 로드
   useEffect(() => {
-    const onFocus = () => setWallet(loadWalletSafely());
-    const onStorage = (e) => {
-      if (e.key === WALLET_KEY) setWallet(loadWalletSafely());
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("storage", onStorage);
-    };
+    (async () => {
+      try {
+        // 최근 5건을 서버에서 바로 받음
+        const summary = await getMyPoints(5); // { balance, totalEarned, totalSpent, recent:[...] }
+        setBalance(Number(summary.balance || 0));
+        setRecentTx(Array.isArray(summary.recent) ? summary.recent : []);
+      } catch (e) {
+        console.warn("포인트 요약 조회 실패:", e);
+        setBalance(0);
+        setRecentTx([]);
+      }
+
+      try {
+        // 달성한 미션 수 집계(첫 페이지 기준)
+        const page = await getMyPointTx({ page: 0, size: 100 });
+        const list = Array.isArray(page?.content) ? page.content : Array.isArray(page) ? page : [];
+        const count = list.filter((t) => t.reason === "MISSION_REWARD" && Number(t.delta) > 0).length;
+        setMissionAchievedCount(count);
+      } catch (e) {
+        console.warn("포인트 내역 조회 실패:", e);
+        setMissionAchievedCount(0);
+      }
+    })();
   }, []);
 
   // 예산/지출 집계
@@ -76,7 +107,6 @@ const DashboardPage = ({ go }) => {
 
     (async () => {
       try {
-        // ✅ 인증 포함된 loadBudgets 사용
         const budgetsResp = await loadBudgets(ym);
         const budgets = asArray(budgetsResp);
         setBudgetSum(budgets.reduce((s, b) => s + Number(b.amount || 0), 0));
@@ -96,15 +126,14 @@ const DashboardPage = ({ go }) => {
     })();
   }, []);
 
-  const recentLogs =
-    (wallet.history || [])
-      .slice(-3)
-      .reverse()
-      .map((h) => ({ label: h.desc, value: Number(h.amount || 0) }));
+  // PointCard 데이터 변환
+  const recentLogs = (recentTx || [])
+    .slice(0, 3)
+    .map((t) => ({ label: labelFromReason(t.reason), value: Number(t.delta || 0) }));
 
   const pointData = useMemo(
-    () => ({ total: wallet.current, logs: recentLogs }),
-    [wallet.current, recentLogs]
+    () => ({ total: balance, logs: recentLogs }),
+    [balance, recentLogs]
   );
 
   const budgetData = useMemo(
@@ -144,13 +173,10 @@ const DashboardPage = ({ go }) => {
         }}
       >
         {[
-          { label: "보유 포인트", value: `${wallet.current}p` },
+          { label: "보유 포인트", value: `${balance}p` },
           { label: "이번 달 지출", value: `${expenseSum.toLocaleString()}원` },
           { label: "전체 예산", value: `${budgetSum.toLocaleString()}원` },
-          {
-            label: "달성한 미션",
-            value: `${(wallet.history || []).filter((h) => h.desc === "미션 완료 보상").length}개`,
-          },
+          { label: "달성한 미션", value: `${missionAchievedCount}개` },
         ].map((item, i) => (
           <div
             key={i}
@@ -213,7 +239,5 @@ const DashboardPage = ({ go }) => {
     </section>
   );
 };
-
-//수정용 커밋
 
 export default DashboardPage;

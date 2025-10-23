@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 export const useHashRoute = () => {
   const getPath = () => window.location.hash.replace("#", "") || "/";
-  const [path, setPath] = useState(getPath);
+  const [path, setPath] = useState(getPath());
 
   useEffect(() => {
     const onHashChange = () => setPath(getPath());

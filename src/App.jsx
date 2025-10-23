@@ -151,7 +151,7 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingPath, setPendingPath] = useState(null);
 
-  // ✅ 가드가 적용된 이동 함수
+  // 가드가 적용된 이동 함수
   // - protected 경로이고 비로그인 → 모달 + 정확한 이동 대상(to 전체) 저장
   // - 로그인 상태 → 즉시 이동
   const go = (to) => {
