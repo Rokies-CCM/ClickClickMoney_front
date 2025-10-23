@@ -21,7 +21,7 @@ const NavBar = ({ path, go }) => {
         <nav className="nav-items">
           <Item to="/" label="click talk" />
           <Item to="/login" label="로그인" />
-          <Item to="/wallet" label="내지갑" />
+          <Item to="/wallet" label="내 지갑" />
           <Item to="/signup" label="회원가입" />
         </nav>
       </div>

@@ -1,9 +1,9 @@
 // src/pages/PointPage.jsx
 import { useEffect, useState } from "react";
 import { getMyPoints, getMyPointTx, redeemPoints, playCatalogLottery } from "../api/points"; // ✅ 서버 포인트 API(+ 카탈로그 복권)
-import { me } from "../api/auth"; // ✅ 사용자별 브리지 키 분리
+import { me } from "../api/auth"; // 사용자별 브리지 키 분리
 
-// ✅ 리워드 카탈로그
+// 리워드 카탈로그
 const REWARDS = [
   { id: "lottery-pass", name: "복권 긁기 이용권", price: 50, desc: "지금 바로 긁어서 당첨 포인트를 받아보세요!" },
   { id: "conv-500",     name: "편의점 500원 할인권", price: 500,  desc: "편의점에서 500원 할인(예시)." },
@@ -100,7 +100,7 @@ export default function PointPage() {
     return () => { alive = false; };
   }, []);
 
-  // ✅ 서버에서 요약 + 내역 조회
+  // 서버에서 요약 + 내역 조회
   async function refresh() {
     try {
       const summary = await getMyPoints(5); // {balance, totalEarned, totalSpent, recent:[...]}
@@ -150,7 +150,7 @@ export default function PointPage() {
   const openCatalog = () => setIsCatalogOpen(true);
   const closeCatalog = () => setIsCatalogOpen(false);
 
-  // ✅ 리워드 교환(카탈로그) → 서버 차감 / 브리지(exchange) 신호 기록 / 복권이면 긁기 모달
+  // 리워드 교환(카탈로그) → 서버 차감 / 브리지(exchange) 신호 기록 / 복권이면 긁기 모달
   const redeemReward = async (item) => {
     if (!item) return;
     if (item.price > points.current) {
@@ -184,7 +184,7 @@ export default function PointPage() {
     }
   };
 
-  // ✅ 카탈로그 복권 긁기(무제한) → 서버 전용 엔드포인트가 랜덤 보상 적립 후 {reward} 반환
+  // 카탈로그 복권 긁기(무제한) → 서버 전용 엔드포인트가 랜덤 보상 적립 후 {reward} 반환
   const handleScratch = async () => {
     if (scratchReward !== null) return; // 이미 긁음
     try {
@@ -441,7 +441,7 @@ export default function PointPage() {
         />
       )}
 
-      {/* ✅ 복권 긁기 모달 */}
+      {/* 복권 긁기 모달 */}
       {isScratchOpen && (
         <ScratchModal
           reward={scratchReward}

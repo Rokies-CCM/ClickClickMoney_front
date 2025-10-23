@@ -16,7 +16,7 @@ const Header = ({ go }) => {
             로그인
           </button>
           <button className="nav-btn" onClick={() => go("/wallet")}>
-            내지갑
+            내 지갑
           </button>
           <button className="nav-btn" onClick={() => go("/signup")}>
             회원가입

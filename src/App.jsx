@@ -15,6 +15,7 @@ import PointPage from "./pages/PointPage";
 import AccountBookPage from "./pages/AccountBookPage";
 import ExpenseAnalysisPage from "./pages/ExpenseAnalysisPage";
 import SubscriptionPage from "./pages/SubscriptionPage";
+import StockPricePage from './pages/StockPricePage';
 
 import { isAuthed } from "./api/auth";
 
@@ -27,6 +28,7 @@ const MAIN_HEADER_PATHS = new Set([
   "/account",
   "/subscription",
   "/analysis",
+  "/stock-price",
 ]);
 
 /** 로그인이 필요한 경로 */
@@ -149,7 +151,7 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingPath, setPendingPath] = useState(null);
 
-  // ✅ 가드가 적용된 이동 함수
+  // 가드가 적용된 이동 함수
   // - protected 경로이고 비로그인 → 모달 + 정확한 이동 대상(to 전체) 저장
   // - 로그인 상태 → 즉시 이동
   const go = (to) => {
@@ -220,6 +222,8 @@ export default function App() {
         return <ExpenseAnalysisPage go={go} />;
       case "/subscription":
         return <SubscriptionPage go={go} />;
+      case "/stock-price":
+        return <StockPricePage />;
       default:
         return <StartPage go={go} />;
     }

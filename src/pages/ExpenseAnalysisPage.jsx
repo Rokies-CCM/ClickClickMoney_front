@@ -82,7 +82,7 @@ const diffDaysInclusive = (a, b) => Math.max(0, Math.floor((b - a) / 86400000) +
 // 팔레트(톤 통일)
 const COLORS = [
   "#FFD858", "#FFAD70", "#8FD3FF", "#B2F7A1", "#D6C1FF",
-  "#FFC7E2", "#FFA6A6", "#9FE3D4", "#BBD3FF", "#E8E594"
+  "#FFC7E2", "#FFA6A6", "#9FE3D4", "#BBD3FF", "#E8E594","#caafffff"
 ];
 
 /* -------------------- 도넛 섹터 Path 유틸(겹침 없음) -------------------- */

@@ -237,7 +237,7 @@ const MainHeader = ({ go }) => {
                 cursor: "pointer",
               }}
             >
-              내지갑
+              내 지갑
             </button>
           </nav>
         </div>
