@@ -218,7 +218,7 @@ const MissionPage = ({ go }) => {
     });
   };
   
-    // 서버 적립 호출 + 완료 마킹(즉시 반영) — 복권 제외
+  // 서버 적립 호출 + 완료 마킹(즉시 반영) — 복권 제외
   const finalizeMission = async (missionId, _reasonOverride, overridePoints = null) => {
     const m = missions.find((x) => x.id === missionId);
     if (!m || m.type === "lottery") return;
@@ -825,8 +825,8 @@ function QuizModal({ mission, onClose, onSubmitted }) {
     }
   };
 
+  // ✅ 변경: onClose() 호출 제거 — 부모가 같은 모달에서 'info'를 띄우도록 함
   const handleFinish = async () => {
-    // ✅ DB에 시도/점수 저장
     try {
       const total = questions.length;
       const score = total > 0 ? Math.round((correctCount * 100) / total) : 0;
@@ -853,7 +853,8 @@ function QuizModal({ mission, onClose, onSubmitted }) {
 
     // 제출이 끝나면, 정답 수만큼 진행률 증가 (부모에서 완료/안내 처리)
     onSubmitted?.(correctCount, questions.length);
-    onClose?.(); // 퀴즈 모달 닫고 부모에서 info/완료 처리
+
+    // ❌ onClose() 호출하지 않습니다. 부모가 modalKind를 'info'로 바꿔 안내를 같은 모달에서 표시합니다.
   };
 
   const setAnswer = (qid, choice) => {
@@ -1262,31 +1263,31 @@ function LotteryModal({ mission, onClose, onComplete }) {
   const [busy, setBusy] = useState(false);
 
   const scratch = async () => {
-  if (scratched || busy) return;
-  setScratched(true);
-  setBusy(true);
-  try {
-    // 서버에 하루 1회 복권 플레이 요청
-    const res = await playDailyLottery();
+    if (scratched || busy) return;
+    setScratched(true);
+    setBusy(true);
+    try {
+      // 서버에 하루 1회 복권 플레이 요청
+      const res = await playDailyLottery();
 
-    // 응답 키 양쪽 호환 (PlayLotteryResponse vs ClaimResponse)
-    const reward = Number(res?.reward ?? 0);
-    const already =
-      !!(res?.alreadyPlayedToday ?? res?.alreadyClaimed ?? false);
+      // 응답 키 양쪽 호환 (PlayLotteryResponse vs ClaimResponse)
+      const reward = Number(res?.reward ?? 0);
+      const already =
+        !!(res?.alreadyPlayedToday ?? res?.alreadyClaimed ?? false);
 
-    // 부모에게 결과 전달 → 부모가 같은 모달에서 info로 전환
-    onComplete?.(reward, already);
+      // 부모에게 결과 전달 → 부모가 같은 모달에서 info로 전환
+      onComplete?.(reward, already);
 
-    // ⛔️ onClose() 호출하지 말 것!
-    // 부모가 modalKind를 "info"로 바꿔 같은 모달 안에서 안내를 띄웁니다.
-  } catch (e) {
-    console.warn(e);
-    alert(e?.message || "복권 처리 중 오류가 발생했습니다.");
-    setScratched(false);
-  } finally {
-    setBusy(false);
-  }
-};
+      // ⛔️ onClose() 호출하지 말 것!
+      // 부모가 modalKind를 "info"로 바꿔 같은 모달 안에서 안내를 띄웁니다.
+    } catch (e) {
+      console.warn(e);
+      alert(e?.message || "복권 처리 중 오류가 발생했습니다.");
+      setScratched(false);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <>

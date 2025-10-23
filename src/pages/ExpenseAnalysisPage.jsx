@@ -474,7 +474,7 @@ const ExpenseAnalysisPage = () => {
                   alignItems: "flex-end",
                   gap: 6,
                   height: 120,
-                  border: "1px dashed #ddd",
+                  border: "none",
                   padding: "12px",
                   borderRadius: 8,
                   overflowX: "auto",

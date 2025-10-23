@@ -6,11 +6,11 @@ import { me } from "../api/auth"; // 사용자별 브리지 키 분리
 // 리워드 카탈로그
 const REWARDS = [
   { id: "lottery-pass", name: "복권 긁기 이용권", price: 50, desc: "지금 바로 긁어서 당첨 포인트를 받아보세요!" },
-  { id: "conv-500",     name: "편의점 500원 할인권", price: 500,  desc: "편의점에서 500원 할인(예시)." },
-  { id: "icecream",     name: "아이스크림 교환권",   price: 1000, desc: "일부 매장 제외(예시)." },
-  { id: "delivery-2k",  name: "배달비 2,000원 할인", price: 2000, desc: "배달앱 쿠폰(예시)." },
-  { id: "coffee-ame",   name: "커피 쿠폰(아메리카노)", price: 4500, desc: "스타벅스/투썸 등(예시)." },
-  { id: "movie",        name: "영화 예매권",         price: 9000, desc: "일반 2D 기준(예시)." },
+  { id: "conv-500",     name: "편의점 500원 할인권", price: 500,  desc: "편의점에서 500원 할인." },
+  { id: "icecream",     name: "아이스크림 교환권",   price: 1000, desc: "일부 매장 제외." },
+  { id: "delivery-2k",  name: "배달비 2,000원 할인", price: 2000, desc: "배달앱 쿠폰." },
+  { id: "coffee-ame",   name: "커피 쿠폰(아메리카노)", price: 4500, desc: "스타벅스" },
+  { id: "movie",        name: "영화 예매권",         price: 9000, desc: "일반 2D 기준." },
 ];
 
 const labelFromReason = (value) => {

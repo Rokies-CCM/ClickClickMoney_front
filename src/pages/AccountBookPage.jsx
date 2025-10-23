@@ -649,7 +649,7 @@ export default function AccountBookPage() {
   }, [ym, totalExpense, monthlyBudget, byCategory.length]);
 
   /* -------- Render -------- */
-  // ✅ 리스트 스크롤 제어용 상수
+  // 리스트 스크롤 제어용 상수
   const ROW_MIN_H = 56;
   const MAX_VISIBLE_ROWS = 4;
   const LIST_MAX_PX = ROW_MIN_H * MAX_VISIBLE_ROWS;
@@ -713,7 +713,7 @@ export default function AccountBookPage() {
           />
         </div>
 
-        {/* Expense list — ✅ 4개 초과 시 내부 스크롤 */}
+        {/* Expense list — 4개 초과 시 내부 스크롤 */}
         <div style={panelStyle}>
           <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>지출 내역 ({ym})</h3>
 
