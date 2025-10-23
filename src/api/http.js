@@ -32,7 +32,14 @@ async function unwrapResponse(res) {
 
 // 공통 요청 함수
 export async function http(method, path, body, withAuth = false) {
-  const headers = { "Content-Type": "application/json" };
+  const isFormData =
+    typeof FormData !== "undefined" && body instanceof FormData;
+
+  const headers = {};
+  // GET/HEAD 또는 FormData일 때는 Content-Type을 명시하지 않음(브라우저가 boundary 포함 세팅)
+  if (!isFormData && method !== "GET" && method !== "HEAD") {
+    headers["Content-Type"] = "application/json";
+  }
   if (withAuth) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -43,7 +50,11 @@ export async function http(method, path, body, withAuth = false) {
     res = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: isFormData
+        ? body
+        : body
+        ? JSON.stringify(body)
+        : undefined,
     });
   } catch (e) {
     const err = new Error("네트워크 오류로 서버에 연결할 수 없습니다.");

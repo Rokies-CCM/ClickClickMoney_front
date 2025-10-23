@@ -35,6 +35,27 @@ export const loadMonth = async (ym, opts = {}) => {
   return loadRange(toStr(start), toStr(end), opts);
 };
 
+/** 백엔드 월별 목록 페이지 (서버에서 1~말일 처리) */
+export const listByMonth = (yearMonth, { page = 0, size = 20 } = {}) => {
+  const qs = new URLSearchParams({ yearMonth, page: String(page), size: String(size) });
+  return http("GET", `/consumptions/list-by-month?${qs.toString()}`, undefined, true);
+};
+
+/** 월 대시보드 요약: 총지출/건수/카테고리 분포 */
+export const getMonthly = (yearMonth) =>
+  http("GET", `/consumptions/monthly?yearMonth=${encodeURIComponent(yearMonth)}`, undefined, true);
+
+/** 카테고리 분포만 필요할 때 */
+export const getByCategory = (yearMonth) =>
+  http("GET", `/consumptions/by-category?yearMonth=${encodeURIComponent(yearMonth)}`, undefined, true);
+
+/** CSV 업로드 (multipart) */
+export const uploadCsv = (file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return http("POST", "/consumptions/upload-csv", fd, true);
+};
+
 /** 수정(쿼리파라미터로 필요한 필드만 전달) */
 export const updateOne = (id, { date, category, amount } = {}) => {
   const qs = new URLSearchParams();

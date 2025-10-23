@@ -8,6 +8,7 @@ import {
 } from "../api/consumption";
 import { loadBudgets, upsertBudget } from "../api/budget";
 import { upsertMemo, loadMemo } from "../api/memo";
+import { generateTips } from "../api/tips";          // ✅ AI 절약 팁 호출
 import UploadCSV from "../components/accountbook/UploadCSV"; // CSV 업로드 버튼
 
 const DEFAULT_BUDGET_CATEGORY = "전체"; // 백엔드 category 필수 대응
@@ -44,17 +45,14 @@ const normalizeConsumption = (raw) => {
     null;
 
   const category =
-    // 문자열 우선
     (typeof x.category === "string" ? x.category : null) ??
     x.categoryName ??
     x.cat ??
     x.type ??
     x.consumptionCategory ??
-    // 객체라면 name/label 등
     (typeof x.category === "object" ? (x.category?.name ?? x.category?.label ?? x.category?.title) : null) ??
     "";
 
-  // 날짜 후보
   const dateRaw =
     x.date ??
     x.useDate ??
@@ -64,10 +62,7 @@ const normalizeConsumption = (raw) => {
     x.created_at ??
     x.createdAt ??
     "";
-  const date =
-    typeof dateRaw === "string"
-      ? dateRaw.slice(0, 10) // ISO일 경우 날짜 부분만
-      : "";
+  const date = typeof dateRaw === "string" ? dateRaw.slice(0, 10) : "";
 
   const amountRaw =
     x.amount ??
@@ -95,11 +90,9 @@ const safeExtractMemo = (resp) => {
     if (typeof obj === "string") return obj;
     if (Array.isArray(obj)) return pick(obj[0] ?? "");
     if (typeof obj === "object") {
-      // { data: [...] } 케이스 우선 처리
       if (Array.isArray(obj.data)) return pick(obj.data[0] ?? "");
       if (Array.isArray(obj.results)) return pick(obj.results[0] ?? "");
       if (Array.isArray(obj.items)) return pick(obj.items[0] ?? "");
-      // 일반 키
       const v =
         obj.memo ??
         obj.value ??
@@ -139,6 +132,26 @@ export default function AccountBookPage() {
     return list.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   }, [expenses]);
 
+  // 카테고리 합계 (AI 팁/요약 카드에 사용)
+  const byCategory = useMemo(() => {
+    const acc = {};
+    for (const cur of asArray(expenses)) {
+      const key = cur.category || "기타";
+      acc[key] = (acc[key] || 0) + Number(cur.amount || 0);
+    }
+    return Object.entries(acc).map(([name, amount]) => ({ name, amount }));
+  }, [expenses]);
+
+  const topCategory = useMemo(() => {
+    if (!byCategory.length) return null;
+    const sorted = [...byCategory].sort((a, b) => b.amount - a.amount);
+    const total = sorted.reduce((s, x) => s + x.amount, 0) || 1;
+    return {
+      name: sorted[0].name || "기타",
+      pct: Math.round((sorted[0].amount / total) * 100),
+    };
+  }, [byCategory]);
+
   const dailyTotals = useMemo(() => {
     const acc = {};
     for (const cur of asArray(expenses)) {
@@ -162,6 +175,11 @@ export default function AccountBookPage() {
     memo: "",       // 지출 설명 = 서버 메모(선택)
   });
   const [editingIndex, setEditingIndex] = useState(null); // 수정중인 인덱스
+
+  /* -------- AI 절약 팁 (자동 생성) -------- */
+  const [aiTips, setAiTips] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
 
   const categories = [
     "생활", "식비", "교통", "주거", "통신", "쇼핑", "카페/간식", "의료/건강", "문화/여가", "기타"
@@ -191,22 +209,19 @@ export default function AccountBookPage() {
       const resp = await loadMemo(cid); // 보장: 문자열 또는 안전 추출 가능한 객체/배열
       const val = safeExtractMemo(resp);
 
-      // 모달 입력값 갱신
       setNewExpense((prev) =>
         (prev && String(prev.id) === String(cid)) ? { ...prev, memo: val } : prev
       );
 
-      // 리스트 즉시 반영
       setExpenses((prev) =>
         asArray(prev).map((x) =>
           String(x.id) === String(cid) ? { ...x, memo: val } : x
         )
       );
 
-      // 캐시 저장
       setMemoMap((prev) => ({ ...prev, [String(cid)]: val }));
-    } catch (e) {
-      console.warn("[memo:get] failed", cid, e);
+    } catch (err) {
+      console.warn("[memo:get] failed", cid, err);
       setMemoMap((prev) => ({ ...prev, [String(cid)]: "" }));
     }
   };
@@ -217,10 +232,10 @@ export default function AccountBookPage() {
     const endDate = `${ym}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, "0")}`;
     try {
       const list = await loadRange(startDate, endDate, { page: 0, size: 1000 });
-      const arr = asArray(list).map(normalizeConsumption); // ✅ 정규화
+      const arr = asArray(list).map(normalizeConsumption);
       setExpenses(arr);
 
-      // ⚡ 메모 선로딩(서버가 소비 응답에 메모를 포함하지 않는 경우 대비)
+      // ⚡ 메모 선로딩
       const idsToFetch = arr
         .map((x) => x?.id)
         .filter((id) => id != null && memoMap[String(id)] === undefined)
@@ -244,10 +259,10 @@ export default function AccountBookPage() {
           setMemoMap((prev) => ({ ...prev, ...patch }));
         }
       }
-    } catch (e) {
-      console.warn("지출 조회 실패:", e);
+    } catch (err) {
+      console.warn("지출 조회 실패:", err);
       alert("지출 조회에 실패했어요.");
-      setExpenses([]); // 방탄
+      setExpenses([]);
     }
   };
 
@@ -255,8 +270,8 @@ export default function AccountBookPage() {
     try {
       const list = await loadBudgets(ym); // [{id, month, category, amount}]
       setBudgetsList(asArray(list));
-    } catch (e) {
-      console.warn("예산 조회 실패:", e);
+    } catch (err) {
+      console.warn("예산 조회 실패:", err);
       alert("예산 조회에 실패했어요.");
       setBudgetsList([]);
     }
@@ -280,8 +295,8 @@ export default function AccountBookPage() {
       setIsBudgetOpen(false);
       setBudgetInput("");
       await fetchMonthBudgets();
-    } catch (e) {
-      console.warn("예산 저장 실패:", e);
+    } catch (err) {
+      console.warn("예산 저장 실패:", err);
       alert("예산 저장에 실패했어요.");
     }
   };
@@ -304,12 +319,11 @@ export default function AccountBookPage() {
       category: item.category || "",
       date: item.date || "",
       amount: String(item.amount ?? ""),
-      memo: memoMap[String(item.id)] ?? memoMap[item.id] ?? fallback, // 캐시 우선
+      memo: memoMap[String(item.id)] ?? memoMap[item.id] ?? fallback,
     });
     setEditingIndex(index);
     setIsExpenseOpen(true);
 
-    // 실제 DB 메모 조회해서 최신값 반영
     if (item.id != null) fetchMemoAndPatch(item.id);
   };
 
@@ -319,7 +333,7 @@ export default function AccountBookPage() {
     setNewExpense({ id: null, category: "", date: "", amount: "", memo: "" });
   };
 
-  // 생성/수정 공용 제출 (메모는 memo API로 저장 — 선택 입력)
+  // 생성/수정 공용 제출
   const handleSubmitExpense = async () => {
     const { id, category, date, amount, memo } = newExpense;
     if (!category || !date || !amount) {
@@ -330,23 +344,17 @@ export default function AccountBookPage() {
 
     try {
       if (editingIndex !== null) {
-        // 수정
         if (!id) {
           alert("이 항목에는 id가 없어 수정할 수 없습니다.");
           return;
         }
-        await updateOne(id, {
-          category,
-          amount: Number(amount),
-          date,
-        });
+        await updateOne(id, { category, amount: Number(amount), date });
 
         if (memoVal.length > 0) {
           await upsertMemo(id, memoVal);
           setMemoMap((prev) => ({ ...prev, [String(id)]: memoVal }));
         }
 
-        // 로컬 반영(표시는 memoMap을 우선 사용하나, fallback을 위해서도 넣어둠)
         setExpenses((prev) =>
           asArray(prev).map((x) =>
             String(x.id) === String(id)
@@ -355,13 +363,9 @@ export default function AccountBookPage() {
           )
         );
       } else {
-        // 생성
         const created = await saveMany([{ category, amount: Number(amount), date }]);
-
-        // 응답에서 id 확보 시도
         let createdId = Array.isArray(created) ? created[0]?.id : (created?.id ?? null);
 
-        // 없으면 이번 달 내역 재조회로 매칭 (정규화 후 조건 비교)
         if (createdId == null) {
           const startDate = `${ym}-01`;
           const endDate = `${ym}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, "0")}`;
@@ -379,8 +383,8 @@ export default function AccountBookPage() {
       }
       handleCloseExpenseModal();
       await fetchMonthExpenses();
-    } catch (e) {
-      console.warn("지출 저장 실패:", e);
+    } catch (err) {
+      console.warn("지출 저장 실패:", err);
       alert("지출 저장에 실패했어요.");
     }
   };
@@ -395,11 +399,53 @@ export default function AccountBookPage() {
     try {
       await deleteOne(id);
       await fetchMonthExpenses();
-    } catch (e) {
-      console.warn("지출 삭제 실패:", e);
+    } catch (err) {
+      console.warn("지출 삭제 실패:", err);
       alert("지출 삭제에 실패했어요.");
     }
   };
+
+  /* -------- AI 절약 팁 (자동 생성) -------- */
+  useEffect(() => {
+    if (asArray(expenses).length === 0 && !monthlyBudget) {
+      setAiTips([]);
+      setAiError("");
+      return;
+    }
+
+    let cancelled = false;
+    const fetchTips = async () => {
+      setAiLoading(true);
+      setAiError("");
+      try {
+        const payload = {
+          yearMonth: ym,
+          totalAmount: Number(totalExpense || 0),
+          budget: Number(monthlyBudget || 0),
+          byCategory, // [{name, amount}]
+        };
+        const res = await generateTips(payload, { useLLM: true });
+        const tips = asArray(res?.tips).map(String).filter(Boolean).slice(0, 2); // 1~2줄
+        if (!cancelled) {
+          setAiTips(tips);
+        }
+      } catch (err) {
+        console.warn("AI 팁 생성 실패:", err);
+        if (!cancelled) {
+          setAiError("AI 팁 생성에 실패했어요.");
+          setAiTips([]);
+        }
+      } finally {
+        if (!cancelled) setAiLoading(false);
+      }
+    };
+
+    const t = setTimeout(fetchTips, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [ym, totalExpense, monthlyBudget, byCategory.length]); // 핵심 값 변경 시 자동 갱신
 
   /* -------- Render -------- */
   return (
@@ -433,13 +479,13 @@ export default function AccountBookPage() {
           />
         </div>
 
-        {/* Budget */}
+        {/* Budget (요청대로 진행 그래프 제거) */}
         <div style={{ textAlign: "left", fontSize: 18, fontWeight: 700, marginBottom: 24 }}>
           {year}년 {monthIndex + 1}월 목표 예산{" "}
           <span style={{ marginLeft: 10, fontWeight: 800 }}>{monthlyBudget.toLocaleString()}원</span>
         </div>
 
-        {/* Summary cards */}
+        {/* Summary cards — 카테고리 분포 카드 복원 + AI 팁 자동 1~2줄 */}
         <div style={cardsRowStyle}>
           <SummaryCard
             title="총 지출"
@@ -447,8 +493,22 @@ export default function AccountBookPage() {
             sub={`총 ${asArray(expenses).length}건`}
             highlight
           />
-          <SummaryCard title="카테고리별 분포" value="준비 중" sub="" />
-          <SummaryCard title="AI 절약 팁" value="준비 중" sub="" />
+          <SummaryCard
+            title="카테고리별 분포"
+            value={topCategory ? `${topCategory.name} ${topCategory.pct}%` : "-"}
+            sub={`${byCategory.length}개 카테고리`}
+          />
+          <SummaryCard
+            title="AI 절약 팁"
+            value={
+              aiLoading
+                ? "생성 중..."
+                : aiError
+                  ? aiError
+                  : (aiTips[0] || "분석할 데이터가 충분하지 않아요.")
+            }
+            sub={aiLoading ? "" : (aiTips[1] || "")}
+          />
         </div>
 
         {/* Expense list */}
@@ -718,6 +778,7 @@ function SummaryCard({ title, value, sub, highlight }) {
           fontWeight: 700,
           fontSize: 18,
           marginBottom: 4,
+          minHeight: 22,
         }}
       >
         {value}
