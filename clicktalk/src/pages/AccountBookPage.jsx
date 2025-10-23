@@ -1,16 +1,19 @@
 // src/pages/AccountBookPage.jsx
 import { useEffect, useMemo, useState } from "react";
 import {
-  loadConsumptions,
-  createConsumptions,
-  updateConsumption,
-  deleteConsumption,
-} from "/src/api/consumption.js";
+  loadRange,     // 기간 조회
+  saveMany,      // 여러 건 저장
+  updateOne,     // 단건 수정
+  deleteOne      // 단건 삭제
+} from "../api/consumption";
 import { loadBudgets, upsertBudget } from "../api/budget";
-import { upsertMemo, loadMemo } from "/src/api/memo"; // 메모 저장/조회
+import { upsertMemo, loadMemo } from "../api/memo";
+import UploadCSV from "../components/accountbook/UploadCSV"; // CSV 업로드 버튼
 
 const DEFAULT_BUDGET_CATEGORY = "전체"; // 백엔드 category 필수 대응
+const MEMO_PREFETCH_LIMIT = 300;        // 월 조회 후 선로딩 최대 건수(과도한 호출 방지)
 
+/* -------------------- 유틸 -------------------- */
 // 어떤 응답 형태여도 배열로 변환
 const asArray = (v) => {
   if (Array.isArray(v)) return v;
@@ -29,20 +32,103 @@ const ymToDate = (ymStr) => {
 };
 const dateToYm = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
+// 서버에서 내려오는 다양한 키들을 화면 표준 키로 정규화
+const normalizeConsumption = (raw) => {
+  const x = raw ?? {};
+  const id =
+    x.id ??
+    x.consumptionId ??
+    x.seq ??
+    x.pk ??
+    x._id ??
+    null;
+
+  const category =
+    // 문자열 우선
+    (typeof x.category === "string" ? x.category : null) ??
+    x.categoryName ??
+    x.cat ??
+    x.type ??
+    x.consumptionCategory ??
+    // 객체라면 name/label 등
+    (typeof x.category === "object" ? (x.category?.name ?? x.category?.label ?? x.category?.title) : null) ??
+    "";
+
+  // 날짜 후보
+  const dateRaw =
+    x.date ??
+    x.useDate ??
+    x.spentDate ??
+    x.paymentDate ??
+    x.createdDate ??
+    x.created_at ??
+    x.createdAt ??
+    "";
+  const date =
+    typeof dateRaw === "string"
+      ? dateRaw.slice(0, 10) // ISO일 경우 날짜 부분만
+      : "";
+
+  const amountRaw =
+    x.amount ??
+    x.price ??
+    x.money ??
+    x.cost ??
+    x.value ??
+    0;
+  const amount = Number(amountRaw ?? 0);
+
+  const memo =
+    x.memo ??
+    x.description ??
+    x.note ??
+    x.desc ??
+    "";
+
+  return { ...x, id, category, date, amount, memo };
+};
+
+// JSON/문자열/배열 어떤 형태여도 안전하게 "메모 문자열"만 추출
+const safeExtractMemo = (resp) => {
+  const pick = (obj) => {
+    if (obj == null) return "";
+    if (typeof obj === "string") return obj;
+    if (Array.isArray(obj)) return pick(obj[0] ?? "");
+    if (typeof obj === "object") {
+      // { data: [...] } 케이스 우선 처리
+      if (Array.isArray(obj.data)) return pick(obj.data[0] ?? "");
+      if (Array.isArray(obj.results)) return pick(obj.results[0] ?? "");
+      if (Array.isArray(obj.items)) return pick(obj.items[0] ?? "");
+      // 일반 키
+      const v =
+        obj.memo ??
+        obj.value ??
+        obj.text ??
+        obj.message ??
+        obj.data?.memo ??
+        obj.data?.value ??
+        "";
+      return typeof v === "string" ? v : String(v ?? "");
+    }
+    return String(obj);
+  };
+  return String(pick(resp)).trim();
+};
+
 export default function AccountBookPage() {
-  // -------- Month state --------
+  /* -------- Month state -------- */
   const initYm = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   };
   const [ym, setYm] = useState(initYm()); // "YYYY-MM"
 
-  // -------- Data state --------
-  const [expenses, setExpenses] = useState([]);       // 현재 월 지출 (배열)
+  /* -------- Data state -------- */
+  const [expenses, setExpenses] = useState([]);       // 현재 월 지출 (정규화 배열)
   const [budgetsList, setBudgetsList] = useState([]); // 현재 월 예산(카테고리별)
   const [memoMap, setMemoMap] = useState({});         // id(문자열) → memo 캐시
 
-  // -------- Derived --------
+  /* -------- Derived -------- */
   const monthlyBudget = useMemo(() => {
     const list = asArray(budgetsList);
     return list.reduce((sum, b) => sum + Number(b.amount || 0), 0);
@@ -63,7 +149,7 @@ export default function AccountBookPage() {
     return acc;
   }, [expenses]);
 
-  // -------- Modal/Input state --------
+  /* -------- Modal/Input state -------- */
   const [isBudgetOpen, setIsBudgetOpen] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
 
@@ -73,7 +159,7 @@ export default function AccountBookPage() {
     category: "",
     date: "",
     amount: "",
-    memo: "",       // 지출 설명 = 서버 메모
+    memo: "",       // 지출 설명 = 서버 메모(선택)
   });
   const [editingIndex, setEditingIndex] = useState(null); // 수정중인 인덱스
 
@@ -81,7 +167,7 @@ export default function AccountBookPage() {
     "생활", "식비", "교통", "주거", "통신", "쇼핑", "카페/간식", "의료/건강", "문화/여가", "기타"
   ];
 
-  // -------- Month navigation --------
+  /* -------- Month navigation -------- */
   const moveMonth = (delta) => {
     const d = ymToDate(ym);
     d.setMonth(d.getMonth() + delta);
@@ -99,13 +185,65 @@ export default function AccountBookPage() {
   for (let i = 0; i < firstDay; i++) calendarDays.push(null);
   for (let i = 1; i <= daysInMonth; i++) calendarDays.push(i);
 
-  // -------- 서버 로드 --------
+  /* -------- Memo helpers -------- */
+  const fetchMemoAndPatch = async (cid) => {
+    try {
+      const resp = await loadMemo(cid); // 보장: 문자열 또는 안전 추출 가능한 객체/배열
+      const val = safeExtractMemo(resp);
+
+      // 모달 입력값 갱신
+      setNewExpense((prev) =>
+        (prev && String(prev.id) === String(cid)) ? { ...prev, memo: val } : prev
+      );
+
+      // 리스트 즉시 반영
+      setExpenses((prev) =>
+        asArray(prev).map((x) =>
+          String(x.id) === String(cid) ? { ...x, memo: val } : x
+        )
+      );
+
+      // 캐시 저장
+      setMemoMap((prev) => ({ ...prev, [String(cid)]: val }));
+    } catch (e) {
+      console.warn("[memo:get] failed", cid, e);
+      setMemoMap((prev) => ({ ...prev, [String(cid)]: "" }));
+    }
+  };
+
+  /* -------- 서버 로드 -------- */
   const fetchMonthExpenses = async () => {
     const startDate = `${ym}-01`;
     const endDate = `${ym}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, "0")}`;
     try {
-      const list = await loadConsumptions({ startDate, endDate, page: 0, size: 1000 });
-      setExpenses(asArray(list));
+      const list = await loadRange(startDate, endDate, { page: 0, size: 1000 });
+      const arr = asArray(list).map(normalizeConsumption); // ✅ 정규화
+      setExpenses(arr);
+
+      // ⚡ 메모 선로딩(서버가 소비 응답에 메모를 포함하지 않는 경우 대비)
+      const idsToFetch = arr
+        .map((x) => x?.id)
+        .filter((id) => id != null && memoMap[String(id)] === undefined)
+        .slice(0, MEMO_PREFETCH_LIMIT);
+
+      if (idsToFetch.length) {
+        const results = await Promise.allSettled(
+          idsToFetch.map(async (cid) => {
+            const r = await loadMemo(cid);
+            return [cid, safeExtractMemo(r)];
+          })
+        );
+        const patch = {};
+        for (const r of results) {
+          if (r.status === "fulfilled") {
+            const [cid, val] = r.value;
+            patch[String(cid)] = val;
+          }
+        }
+        if (Object.keys(patch).length) {
+          setMemoMap((prev) => ({ ...prev, ...patch }));
+        }
+      }
     } catch (e) {
       console.warn("지출 조회 실패:", e);
       alert("지출 조회에 실패했어요.");
@@ -120,7 +258,7 @@ export default function AccountBookPage() {
     } catch (e) {
       console.warn("예산 조회 실패:", e);
       alert("예산 조회에 실패했어요.");
-      setBudgetsList([]); // 방탄
+      setBudgetsList([]);
     }
   };
 
@@ -130,7 +268,7 @@ export default function AccountBookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ym]);
 
-  // -------- Budget handlers --------
+  /* -------- Budget handlers -------- */
   const handleSaveBudget = async () => {
     if (budgetInput === "" || isNaN(budgetInput)) {
       alert("숫자 금액을 입력하세요.");
@@ -148,45 +286,7 @@ export default function AccountBookPage() {
     }
   };
 
-  // -------- Memo helpers --------
-  // JSON이든 순수 텍스트든 안전하게 메모 문자열을 추출
-  const safeExtractMemo = (resp) => {
-    if (resp == null) return "";
-    if (typeof resp === "string") return resp; // text/plain 대응
-    if (typeof resp === "object") {
-      const v = resp.memo ?? resp.value ?? resp.data?.memo ?? resp.data?.value ?? "";
-      return typeof v === "string" ? v : String(v ?? "");
-    }
-    return String(resp);
-  };
-
-  const fetchMemoAndPatch = async (cid) => {
-    try {
-      const resp = await loadMemo(cid); // GET /memo/:id
-      console.log("[memo:get]", cid, resp);
-      const val = safeExtractMemo(resp);
-
-      // 모달 입력값 갱신 (id 타입 불일치 방지: 문자열 비교)
-      setNewExpense((prev) =>
-        (prev && String(prev.id) === String(cid)) ? { ...prev, memo: val } : prev
-      );
-
-      // 리스트 즉시 반영
-      setExpenses((prev) =>
-        asArray(prev).map((x) =>
-          String(x.id) === String(cid) ? { ...x, memo: val } : x
-        )
-      );
-
-      // 캐시 저장 (문자열 키 통일)
-      setMemoMap((prev) => ({ ...prev, [String(cid)]: val }));
-    } catch (e) {
-      console.warn("[memo:get] failed", cid, e);
-      setMemoMap((prev) => ({ ...prev, [String(cid)]: "" }));
-    }
-  };
-
-  // -------- Expense handlers --------
+  /* -------- Expense handlers -------- */
   const handleOpenCreate = () => {
     setNewExpense({ id: null, category: "", date: "", amount: "", memo: "" });
     setEditingIndex(null);
@@ -219,7 +319,7 @@ export default function AccountBookPage() {
     setNewExpense({ id: null, category: "", date: "", amount: "", memo: "" });
   };
 
-  // 생성/수정 공용 제출 (메모는 memo API로 저장)
+  // 생성/수정 공용 제출 (메모는 memo API로 저장 — 선택 입력)
   const handleSubmitExpense = async () => {
     const { id, category, date, amount, memo } = newExpense;
     if (!category || !date || !amount) {
@@ -227,6 +327,7 @@ export default function AccountBookPage() {
       return;
     }
     const memoVal = (memo ?? "").trim();
+
     try {
       if (editingIndex !== null) {
         // 수정
@@ -234,39 +335,44 @@ export default function AccountBookPage() {
           alert("이 항목에는 id가 없어 수정할 수 없습니다.");
           return;
         }
-        await updateConsumption(id, {
+        await updateOne(id, {
           category,
           amount: Number(amount),
           date,
         });
-        await upsertMemo(id, memoVal);
 
-        // 로컬/캐시 반영
+        if (memoVal.length > 0) {
+          await upsertMemo(id, memoVal);
+          setMemoMap((prev) => ({ ...prev, [String(id)]: memoVal }));
+        }
+
+        // 로컬 반영(표시는 memoMap을 우선 사용하나, fallback을 위해서도 넣어둠)
         setExpenses((prev) =>
           asArray(prev).map((x) =>
-            String(x.id) === String(id) ? { ...x, memo: memoVal } : x
+            String(x.id) === String(id)
+              ? { ...x, category, date, amount: Number(amount), memo: memoVal }
+              : x
           )
         );
-        setMemoMap((prev) => ({ ...prev, [String(id)]: memoVal }));
       } else {
-        // 생성 (배열로 전송)
-        const created = await createConsumptions([{ category, amount: Number(amount), date }]);
+        // 생성
+        const created = await saveMany([{ category, amount: Number(amount), date }]);
 
         // 응답에서 id 확보 시도
         let createdId = Array.isArray(created) ? created[0]?.id : (created?.id ?? null);
 
-        // 없으면 이번 달 내역 재조회로 매칭
+        // 없으면 이번 달 내역 재조회로 매칭 (정규화 후 조건 비교)
         if (createdId == null) {
           const startDate = `${ym}-01`;
           const endDate = `${ym}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, "0")}`;
-          const fresh = await loadConsumptions({ startDate, endDate, page: 0, size: 1000 });
-          const list = asArray(fresh)
+          const fresh = await loadRange(startDate, endDate, { page: 0, size: 1000 });
+          const list = asArray(fresh).map(normalizeConsumption)
             .filter(x => x.category === category && x.date === date && Number(x.amount) === Number(amount))
             .sort((a, b) => (Number(b.id || 0) - Number(a.id || 0)));
           createdId = list[0]?.id ?? null;
         }
 
-        if (createdId != null) {
+        if (createdId != null && memoVal.length > 0) {
           await upsertMemo(createdId, memoVal);
           setMemoMap((prev) => ({ ...prev, [String(createdId)]: memoVal }));
         }
@@ -287,7 +393,7 @@ export default function AccountBookPage() {
     }
     if (!confirm("정말로 삭제하시겠어요?")) return;
     try {
-      await deleteConsumption(id);
+      await deleteOne(id);
       await fetchMonthExpenses();
     } catch (e) {
       console.warn("지출 삭제 실패:", e);
@@ -295,7 +401,7 @@ export default function AccountBookPage() {
     }
   };
 
-  // -------- Render --------
+  /* -------- Render -------- */
   return (
     <section style={sectionStyle}>
       <div style={containerStyle}>
@@ -306,6 +412,7 @@ export default function AccountBookPage() {
             <p style={{ color: "#555", fontSize: 15 }}>지출 내역을 확인하고 관리하세요.</p>
           </div>
           <div style={{ display: "flex", gap: 12 }}>
+            <UploadCSV onComplete={fetchMonthExpenses} />
             <button onClick={() => setIsBudgetOpen(true)} style={btnPrimary}>예산 입력</button>
             <button onClick={handleOpenCreate} style={btnPrimary}>지출 추가</button>
           </div>
@@ -351,11 +458,18 @@ export default function AccountBookPage() {
             <p style={{ color: "#999" }}>등록된 지출이 없습니다.</p>
           ) : (
             asArray(expenses).map((e, i) => {
-              const memoText = memoMap[String(e.id)] ?? memoMap[e.id] ?? e.memo ?? e.description ?? e.note ?? e.desc ?? "";
+              const memoText =
+                memoMap[String(e.id)] ??
+                memoMap[e.id] ??
+                e.memo ??
+                e.description ??
+                e.note ??
+                e.desc ??
+                "";
               return (
                 <div key={e.id ?? i} style={rowItemStyle}>
                   <div>
-                    <p style={{ fontWeight: 700 }}>{e.category}</p>
+                    <p style={{ fontWeight: 700 }}>{e.category || "기타"}</p>
                     <p style={{ fontSize: 13, color: "#555" }}>
                       {e.date}{memoText ? `  -  ${memoText}` : ""}
                     </p>
@@ -470,7 +584,7 @@ export default function AccountBookPage() {
             />
             <input
               type="text"
-              placeholder="지출 설명"
+              placeholder="지출 설명 (선택)"
               value={newExpense.memo}
               onChange={(e) => setNewExpense({ ...newExpense, memo: e.target.value })}
               style={{ ...inputStyle, marginBottom: 20 }}

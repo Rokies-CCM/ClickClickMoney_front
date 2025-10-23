@@ -62,7 +62,9 @@ const PointCard = ({ data }) => {
             }}
           >
             <span>{log.label}</span>
-            <span>+{log.value}p</span>
+            <span>
+              {Number(log.value) < 0 ? `-${Math.abs(Number(log.value))}p` : `+${Number(log.value)}p`}
+            </span>
           </li>
         ))}
       </ul>

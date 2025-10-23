@@ -1,32 +1,24 @@
 // src/api/auth.js
 import { http, setToken, getToken, clearToken } from "./http";
 
-// 회원가입
+// 회원가입 (백엔드 DTO: { username, password })
 export const register = (username, password) =>
-  http("POST", "/click/register", { body: { username, password } });
+  http("POST", "/click/register", { username, password });
 
 // 로그인 → accessToken 저장
 export const login = async (username, password) => {
-  const resp = await http("POST", "/click/login", { body: { username, password } });
-
-  // 백엔드가 ApiResponse< LoginResponse > 형태이므로 data 안도 체크
-  const token =
-    resp?.accessToken ||
-    resp?.token ||
-    resp?.data?.accessToken ||
-    resp?.data?.token;
-
-  if (!token) {
-    throw new Error("accessToken이 없습니다. (응답 구조를 확인하세요)");
-  }
+  const resp = await http("POST", "/click/login", { username, password });
+  // LoginResponse: { accessToken, tokenType: "Bearer" }
+  const token = resp?.accessToken;
+  if (!token) throw new Error("accessToken이 없습니다.");
   setToken(token);
   return resp;
 };
 
-// 내 정보 (Authorization 헤더 첨부)
-export const me = () => http("GET", "/click/me", { auth: true });
+// 내 정보 (백엔드: @AuthenticationPrincipal User → username 문자열 반환)
+export const me = () => http("GET", "/click/me", undefined, true);
 
-// 로그아웃(로컬 토큰 제거)
+// 로그아웃(프론트 로컬 토큰만 제거)
 export const logout = () => clearToken();
 
 // 현재 인증 여부

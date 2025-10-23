@@ -32,6 +32,10 @@ export default function PointPage() {
   const [isExchangeOpen, setIsExchangeOpen] = useState(false);
   const [exchangeAmount, setExchangeAmount] = useState(20);
 
+  // 교환 완료 모달 상태
+  const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+  const [exchangedAmount, setExchangedAmount] = useState(0);
+
   // 지갑 로드
   useEffect(() => {
     const w = loadWalletSafely();
@@ -82,7 +86,7 @@ export default function PointPage() {
     fontWeight: 700,
     cursor: "pointer",
   };
-  
+
   // 교환 모달 열기/닫기
   const openExchange = () => {
     // 기본값: 20p, 보유 포인트보다 크면 보유 포인트로
@@ -91,17 +95,10 @@ export default function PointPage() {
   };
   const closeExchange = () => setIsExchangeOpen(false);
 
-  // 교환 확정
+  // 교환 확정 -> 완료 모달
   const confirmExchange = () => {
     const amt = Math.floor(Number(exchangeAmount) || 0);
-    if (amt <= 0) {
-      alert("교환할 포인트를 입력하세요.");
-      return;
-    }
-    if (amt > points.current) {
-      alert("보유 포인트보다 많이 교환할 수 없습니다.");
-      return;
-    }
+    if (amt <= 0 || amt > points.current) return; // 버튼 disabled라 보통 안 옴
 
     const today = new Date().toISOString().split("T")[0];
 
@@ -115,8 +112,9 @@ export default function PointPage() {
       { date: today, desc: "포인트 교환", change: `-${amt}p`, amount: `-${amt}` },
     ]);
 
+    setExchangedAmount(amt);
     closeExchange();
-    alert(`${amt}p를 교환했습니다!`);
+    setIsSuccessOpen(true); // ✅ alert 대신 완료 모달
   };
 
   return (
@@ -329,6 +327,14 @@ export default function PointPage() {
           onConfirm={confirmExchange}
         />
       )}
+
+      {/* ✅ 교환 완료 모달 */}
+      {isSuccessOpen && (
+        <ExchangeSuccessModal
+          amount={exchangedAmount}
+          onClose={() => setIsSuccessOpen(false)}
+        />
+      )}
     </section>
   );
 }
@@ -496,6 +502,64 @@ function ExchangeModal({ current, amount, setAmount, onClose, onConfirm }) {
           <button onClick={onClose} style={btnText}>
             닫기
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------------- 교환 완료 모달 -------------- */
+function ExchangeSuccessModal({ amount, onClose }) {
+  const btnPrimary = {
+    backgroundColor: "#FFD858",
+    border: "none",              // 깔끔한 노란 버튼 (로그아웃 모달과 톤 매칭)
+    borderRadius: "10px",
+    padding: "10px 20px",
+    fontWeight: 800,
+    cursor: "pointer",
+  };
+  const btnText = {
+    background: "transparent",
+    border: "none",
+    marginLeft: 10,
+    cursor: "pointer",
+    fontWeight: 600,
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.35)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 1100,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          border: "1px solid #000",
+          borderRadius: 12,
+          padding: 20,
+          width: 360,
+          maxWidth: "90vw",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
+          textAlign: "left",
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>교환 완료</h3>
+        <p style={{ margin: "10px 0 0", color: "#333", lineHeight: 1.5 }}>
+          {amount}p를 성공적으로 교환했습니다.
+        </p>
+
+        <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button style={btnPrimary} onClick={onClose}>확인</button>
+          <button style={btnText} onClick={onClose}>닫기</button>
         </div>
       </div>
     </div>

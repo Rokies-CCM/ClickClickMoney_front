@@ -1,83 +1,55 @@
 // src/api/http.js
-const BASE = "/api";
+const API_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) || "";
+const TOKEN_KEY = "auth_access";
 
-// 토큰 키 통일: auth.js와 동일("accessToken")
-export const getToken = () => {
+// 토큰 보관/조회/삭제
+export const getToken = () => sessionStorage.getItem(TOKEN_KEY);
+export const setToken = (t) => sessionStorage.setItem(TOKEN_KEY, t);
+export const clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
+
+// ApiResponse 래퍼가 있어도/없어도 동작하게 언래핑
+async function unwrapResponse(res) {
+  const text = await res.text();
+  let json = null;
   try {
-    return localStorage.getItem("accessToken") || "";
+    json = text ? JSON.parse(text) : null;
   } catch {
-    return "";
+    // text/plain 같은 경우 그대로 반환할 수 있도록 메시지로 감쌈
+    json = text ? { message: text } : null;
   }
-};
-export const setToken = (t) => {
-  try {
-    if (t) localStorage.setItem("accessToken", t);
-    else localStorage.removeItem("accessToken");
-  } catch {//ignore
-    }
-};
-export const clearToken = () => {
-  try {
-    localStorage.removeItem("accessToken");
-  } catch { //ignore
-    }
-};
+  const payload = json && (json.data ?? json.result ?? json.payload ?? json);
 
-/**
- * 공통 http 유틸
- * - path는 '/budgets'처럼 주면 자동으로 '/api' 프록시 경유
- * - auth: true면 Authorization 헤더 Bearer 토큰 추가
- * - 응답은 content-type 보고 JSON/텍스트 모두 지원
- */
-export async function http(method, url, { body, auth = false, headers = {} } = {}) {
-  const h = { "Content-Type": "application/json", ...headers };
-
-  if (auth) {
-    const token = getToken();
-    if (!token) {
-      console.warn("[http] auth:true지만 토큰이 없습니다. 요청을 막습니다.", method, url);
-      throw new Error("No token");
-    }
-    h.Authorization = `Bearer ${token}`;
+  if (!res.ok) {
+    const msg = payload?.message ?? res.statusText ?? "Request failed";
+    const error = new Error(msg);
+    error.status = res.status;
+    error.data = payload;
+    throw error;
   }
-
-  // 디버그: Authorization 유무를 명확히 출력
-  console.log("[http]", method, `${BASE}${url}`, {
-    headers: { ...h, Authorization: h.Authorization ? "(present)" : "(missing)" },
-    body,
-  });
-
-  const resp = await fetch(`${BASE}${url}`, {
-    method,
-    headers: h,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  // 204 No Content
-  if (resp.status === 204) return "";
-
-  // 응답 파싱 (JSON/텍스트 모두 지원)
-  const ct = resp.headers.get("content-type") || "";
-  let data;
-  try {
-    if (ct.includes("application/json")) {
-      data = await resp.json();
-    } else {
-      data = await resp.text(); // text/plain 등
-    }
-  } catch {
-    data = "";
-  }
-
-  if (!resp.ok) {
-    console.log(" [http]", resp.status, "응답 헤더:", Object.fromEntries(resp.headers.entries()));
-    const msg = typeof data === "string" ? data : JSON.stringify(data);
-    throw new Error(`HTTP ${resp.status}: ${msg.slice(0, 300)}`);
-  }
-
-  return data;
+  return payload;
 }
 
-// 응답이 { data: ... } 형태일 때 본문만 쉽게 뽑아 쓰는 헬퍼
-export const getData = (resp) =>
-  resp && typeof resp === "object" && "data" in resp ? resp.data : resp;
+// 공통 요청 함수
+export async function http(method, path, body, withAuth = false) {
+  const headers = { "Content-Type": "application/json" };
+  if (withAuth) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    const err = new Error("네트워크 오류로 서버에 연결할 수 없습니다.");
+    err.cause = e;
+    throw err;
+  }
+
+  return unwrapResponse(res);
+}
