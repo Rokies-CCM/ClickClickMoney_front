@@ -440,7 +440,7 @@ const MissionPage = ({ go }) => {
             <LotteryModal
               mission={selectedMission}
               onClose={closeModal}
-              // ✅ 랜덤 보상 포인트를 finalizeMission에 전달
+              // 랜덤 보상 포인트를 finalizeMission에 전달
               onComplete={(reward) =>
                 finalizeMission(
                   selectedMission.id,

@@ -37,48 +37,23 @@ const dateToYm = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
 const normalizeConsumption = (raw) => {
   const x = raw ?? {};
   const id =
-    x.id ??
-    x.consumptionId ??
-    x.seq ??
-    x.pk ??
-    x._id ??
-    null;
+    x.id ?? x.consumptionId ?? x.seq ?? x.pk ?? x._id ?? null;
 
   const category =
     (typeof x.category === "string" ? x.category : null) ??
-    x.categoryName ??
-    x.cat ??
-    x.type ??
-    x.consumptionCategory ??
+    x.categoryName ?? x.cat ?? x.type ?? x.consumptionCategory ??
     (typeof x.category === "object" ? (x.category?.name ?? x.category?.label ?? x.category?.title) : null) ??
     "";
 
   const dateRaw =
-    x.date ??
-    x.useDate ??
-    x.spentDate ??
-    x.paymentDate ??
-    x.createdDate ??
-    x.created_at ??
-    x.createdAt ??
-    "";
+    x.date ?? x.useDate ?? x.spentDate ?? x.paymentDate ??
+    x.createdDate ?? x.created_at ?? x.createdAt ?? "";
   const date = typeof dateRaw === "string" ? dateRaw.slice(0, 10) : "";
 
-  const amountRaw =
-    x.amount ??
-    x.price ??
-    x.money ??
-    x.cost ??
-    x.value ??
-    0;
+  const amountRaw = x.amount ?? x.price ?? x.money ?? x.cost ?? x.value ?? 0;
   const amount = Number(amountRaw ?? 0);
 
-  const memo =
-    x.memo ??
-    x.description ??
-    x.note ??
-    x.desc ??
-    "";
+  const memo = x.memo ?? x.description ?? x.note ?? x.desc ?? "";
 
   return { ...x, id, category, date, amount, memo };
 };
@@ -94,13 +69,8 @@ const safeExtractMemo = (resp) => {
       if (Array.isArray(obj.results)) return pick(obj.results[0] ?? "");
       if (Array.isArray(obj.items)) return pick(obj.items[0] ?? "");
       const v =
-        obj.memo ??
-        obj.value ??
-        obj.text ??
-        obj.message ??
-        obj.data?.memo ??
-        obj.data?.value ??
-        "";
+        obj.memo ?? obj.value ?? obj.text ?? obj.message ??
+        obj.data?.memo ?? obj.data?.value ?? "";
       return typeof v === "string" ? v : String(v ?? "");
     }
     return String(obj);
@@ -168,13 +138,13 @@ export default function AccountBookPage() {
 
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
   const [newExpense, setNewExpense] = useState({
-    id: null,       // 수정 시 필요
+    id: null,
     category: "",
     date: "",
     amount: "",
-    memo: "",       // 지출 설명 = 서버 메모(선택)
+    memo: "",
   });
-  const [editingIndex, setEditingIndex] = useState(null); // 수정중인 인덱스
+  const [editingIndex, setEditingIndex] = useState(null);
 
   /* -------- AI 절약 팁 (자동 생성) -------- */
   const [aiTips, setAiTips] = useState([]);
@@ -206,7 +176,7 @@ export default function AccountBookPage() {
   /* -------- Memo helpers -------- */
   const fetchMemoAndPatch = async (cid) => {
     try {
-      const resp = await loadMemo(cid); // 보장: 문자열 또는 안전 추출 가능한 객체/배열
+      const resp = await loadMemo(cid);
       const val = safeExtractMemo(resp);
 
       setNewExpense((prev) =>
@@ -426,9 +396,7 @@ export default function AccountBookPage() {
         };
         const res = await generateTips(payload, { useLLM: true });
         const tips = asArray(res?.tips).map(String).filter(Boolean).slice(0, 2); // 1~2줄
-        if (!cancelled) {
-          setAiTips(tips);
-        }
+        if (!cancelled) setAiTips(tips);
       } catch (err) {
         console.warn("AI 팁 생성 실패:", err);
         if (!cancelled) {
@@ -445,9 +413,14 @@ export default function AccountBookPage() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [ym, totalExpense, monthlyBudget, byCategory.length]); // 핵심 값 변경 시 자동 갱신
+  }, [ym, totalExpense, monthlyBudget, byCategory.length]);
 
   /* -------- Render -------- */
+  // ✅ 리스트 스크롤 제어용 상수
+  const ROW_MIN_H = 56;         // 각 행 최소 높이(일관성)
+  const MAX_VISIBLE_ROWS = 4;   // 4개까지 보이고 그 이상은 스크롤
+  const LIST_MAX_PX = ROW_MIN_H * MAX_VISIBLE_ROWS;
+
   return (
     <section style={sectionStyle}>
       <div style={containerStyle}>
@@ -479,13 +452,13 @@ export default function AccountBookPage() {
           />
         </div>
 
-        {/* Budget (요청대로 진행 그래프 제거) */}
+        {/* Budget */}
         <div style={{ textAlign: "left", fontSize: 18, fontWeight: 700, marginBottom: 24 }}>
           {year}년 {monthIndex + 1}월 목표 예산{" "}
           <span style={{ marginLeft: 10, fontWeight: 800 }}>{monthlyBudget.toLocaleString()}원</span>
         </div>
 
-        {/* Summary cards — 카테고리 분포 카드 복원 + AI 팁 자동 1~2줄 */}
+        {/* Summary cards */}
         <div style={cardsRowStyle}>
           <SummaryCard
             title="총 지출"
@@ -501,47 +474,48 @@ export default function AccountBookPage() {
           <SummaryCard
             title="AI 절약 팁"
             value={
-              aiLoading
-                ? "생성 중..."
-                : aiError
-                  ? aiError
-                  : (aiTips[0] || "분석할 데이터가 충분하지 않아요.")
+              aiLoading ? "생성 중..." : aiError ? aiError : (aiTips[0] || "분석할 데이터가 충분하지 않아요.")
             }
             sub={aiLoading ? "" : (aiTips[1] || "")}
           />
         </div>
 
-        {/* Expense list */}
+        {/* Expense list — ✅ 4개 초과 시 내부 스크롤 */}
         <div style={panelStyle}>
           <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>지출 내역 ({ym})</h3>
+
           {asArray(expenses).length === 0 ? (
             <p style={{ color: "#999" }}>등록된 지출이 없습니다.</p>
           ) : (
-            asArray(expenses).map((e, i) => {
-              const memoText =
-                memoMap[String(e.id)] ??
-                memoMap[e.id] ??
-                e.memo ??
-                e.description ??
-                e.note ??
-                e.desc ??
-                "";
-              return (
-                <div key={e.id ?? i} style={rowItemStyle}>
-                  <div>
-                    <p style={{ fontWeight: 700 }}>{e.category || "기타"}</p>
-                    <p style={{ fontSize: 13, color: "#555" }}>
-                      {e.date}{memoText ? `  -  ${memoText}` : ""}
-                    </p>
+            <div
+              style={{
+                maxHeight: `${LIST_MAX_PX}px`,
+                overflowY: asArray(expenses).length > MAX_VISIBLE_ROWS ? "auto" : "visible",
+                paddingRight: 6,
+              }}
+            >
+              {asArray(expenses).map((e, i) => {
+                const memoText =
+                  memoMap[String(e.id)] ??
+                  memoMap[e.id] ??
+                  e.memo ?? e.description ?? e.note ?? e.desc ?? "";
+                return (
+                  <div key={e.id ?? i} style={{ ...rowItemStyle, minHeight: ROW_MIN_H }}>
+                    <div>
+                      <p style={{ fontWeight: 700 }}>{e.category || "기타"}</p>
+                      <p style={{ fontSize: 13, color: "#555" }}>
+                        {e.date}{memoText ? `  -  ${memoText}` : ""}
+                      </p>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <p style={{ fontWeight: 700 }}>{Number(e.amount).toLocaleString()}원</p>
+                      <button onClick={() => handleEdit(i)} style={iconBtn} aria-label="수정" title="수정">✏️</button>
+                      <button onClick={() => handleDelete(e)} style={iconBtn} aria-label="삭제" title="삭제">🗑️</button>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <p style={{ fontWeight: 700 }}>{Number(e.amount).toLocaleString()}원</p>
-                    <button onClick={() => handleEdit(i)} style={iconBtn} aria-label="수정" title="수정">✏️</button>
-                    <button onClick={() => handleDelete(e)} style={iconBtn} aria-label="삭제" title="삭제">🗑️</button>
-                  </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </div>
           )}
         </div>
 

@@ -6,14 +6,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      // ✅ FastAPI
+      // FastAPI
       "/chatbot": {
         target: "http://localhost:8000",
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/chatbot/, ""), // /chatbot/v1/... -> /v1/...
       },
 
-      // ✅ Spring (원래 쓰던 /api 등)
+      // Spring (원래 쓰던 /api 등)
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,

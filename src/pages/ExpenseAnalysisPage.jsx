@@ -18,44 +18,24 @@ const asArray = (v) => {
 const normalizeConsumption = (raw) => {
   const x = raw ?? {};
   const id =
-    x.id ??
-    x.consumptionId ??
-    x.seq ??
-    x.pk ??
-    x._id ??
-    null;
+    x.id ?? x.consumptionId ?? x.seq ?? x.pk ?? x._id ?? null;
 
   const category =
     (typeof x.category === "string" ? x.category : null) ??
-    x.categoryName ??
-    x.cat ??
-    x.type ??
-    x.consumptionCategory ??
+    x.categoryName ?? x.cat ?? x.type ?? x.consumptionCategory ??
     (typeof x.category === "object"
       ? (x.category?.name ?? x.category?.label ?? x.category?.title)
-      : null) ??
-    "기타";
+      : null) ?? "기타";
 
   const dateRaw =
-    x.date ??
-    x.useDate ??
-    x.spentDate ??
-    x.paymentDate ??
-    x.createdDate ??
-    x.created_at ??
-    x.createdAt ??
-    "";
+    x.date ?? x.useDate ?? x.spentDate ?? x.paymentDate ??
+    x.createdDate ?? x.created_at ?? x.createdAt ?? "";
   const date = typeof dateRaw === "string" ? dateRaw.slice(0, 10) : "";
 
   const amountRaw = x.amount ?? x.price ?? x.money ?? x.cost ?? x.value ?? 0;
   const amount = Number(amountRaw ?? 0);
 
-  const memo =
-    x.memo ??
-    x.description ??
-    x.note ??
-    x.desc ??
-    "";
+  const memo = x.memo ?? x.description ?? x.note ?? x.desc ?? "";
 
   return { ...x, id, category, date, amount, memo };
 };
@@ -79,19 +59,18 @@ const monthFirst = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
 const monthLast  = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
 const diffDaysInclusive = (a, b) => Math.max(0, Math.floor((b - a) / 86400000) + 1);
 
-// 팔레트(톤 통일)
+// 팔레트
 const COLORS = [
   "#FFD858", "#FFAD70", "#8FD3FF", "#B2F7A1", "#D6C1FF",
   "#FFC7E2", "#FFA6A6", "#9FE3D4", "#BBD3FF", "#E8E594"
 ];
 
-/* -------------------- 도넛 섹터 Path 유틸(겹침 없음) -------------------- */
+/* -------------------- 도넛 Path -------------------- */
 const deg2rad = (deg) => (deg * Math.PI) / 180;
 const polar = (cx, cy, r, deg) => {
-  const rad = deg2rad(deg - 90); // 0deg를 12시 방향으로
+  const rad = deg2rad(deg - 90);
   return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
 };
-/** 도넛 섹터 path(d) */
 const donutPath = (cx, cy, rOuter, rInner, startDeg, endDeg) => {
   let s = Math.max(0, Math.min(360, startDeg));
   let e = Math.max(0, Math.min(360, endDeg));
@@ -149,7 +128,6 @@ const ExpenseAnalysisPage = () => {
     }
   };
 
-  // 기간에 걸친 월별 예산 조회 + 일수 비례 합산
   const fetchRangeBudget = async () => {
     if (!startDate || !endDate) {
       setRangeBudget(0);
@@ -161,7 +139,7 @@ const ExpenseAnalysisPage = () => {
       const s = parseYMD(startDate);
       const e = parseYMD(endDate);
 
-      // 월 세그먼트 생성
+      // 월 세그먼트
       const segs = [];
       let cur = new Date(s.getFullYear(), s.getMonth(), 1);
       const endMonth = new Date(e.getFullYear(), e.getMonth(), 1);
@@ -177,16 +155,11 @@ const ExpenseAnalysisPage = () => {
         const overlapDays = diffDaysInclusive(segStart, segEnd);
         const monthDays = last.getDate();
 
-        if (overlapDays > 0) {
-          segs.push({ ym, monthDays, overlapDays });
-        }
+        if (overlapDays > 0) segs.push({ ym, monthDays, overlapDays });
         cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
       }
 
-      if (!segs.length) {
-        setRangeBudget(0);
-        return;
-      }
+      if (!segs.length) return setRangeBudget(0);
 
       // 월별 예산 조회
       const uniqYms = Array.from(new Set(segs.map((s) => s.ym)));
@@ -196,13 +169,12 @@ const ExpenseAnalysisPage = () => {
             const list = await loadBudgets(ym);
             const sum = asArray(list).reduce((acc, b) => acc + Number(b.amount || 0), 0);
             return [ym, sum];
-          } catch (e) {
-            console.warn("예산 조회 실패:", ym, e);
+          } catch {
             return [ym, 0];
           }
         })
       );
-      const map = Object.fromEntries(results); // ym -> monthBudget
+      const map = Object.fromEntries(results);
 
       // 비례 합산
       const total = segs.reduce((acc, s) => {
@@ -226,13 +198,12 @@ const ExpenseAnalysisPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
-  /* -------------------- 집계/파생 -------------------- */
+  /* -------------------- 집계 -------------------- */
   const totalAmount = useMemo(
     () => rows.reduce((s, r) => s + Number(r.amount || 0), 0),
     [rows]
   );
 
-  // 카테고리 집계
   const byCategory = useMemo(() => {
     const map = new Map();
     for (const r of rows) {
@@ -244,7 +215,6 @@ const ExpenseAnalysisPage = () => {
       .sort((a, b) => b.amount - a.amount);
   }, [rows]);
 
-  // 일별 합계(미니 막대)
   const byDate = useMemo(() => {
     const m = new Map();
     for (const r of rows) {
@@ -267,15 +237,13 @@ const ExpenseAnalysisPage = () => {
     return byDate.reduce((mx, d) => (d.amount > (mx?.amount || 0) ? d : mx), null);
   }, [byDate]);
 
-  // 간단 인사이트(휴리스틱)
+  // 간단 인사이트
   const insights = useMemo(() => {
     const items = [];
     if (byCategory.length) {
       const total = totalAmount || 1;
       const top = byCategory[0];
-      items.push(
-        `가장 큰 지출 카테고리는 '${top.name}' (${Math.round((top.amount / total) * 100)}%).`
-      );
+      items.push(`가장 큰 지출 카테고리는 '${top.name}' (${Math.round((top.amount / total) * 100)}%).`);
     }
     if (topDay) {
       items.push(`최대 지출일은 ${topDay.date} (약 ${formatKRW(topDay.amount)}).`);
@@ -286,7 +254,7 @@ const ExpenseAnalysisPage = () => {
     return items;
   }, [byCategory, topDay, avgDaily, totalAmount]);
 
-  /* -------------------- AI 주의(경고) -------------------- */
+  /* -------------------- AI 주의 -------------------- */
   const runCautions = async () => {
     if (!rows.length) {
       setCautions([]);
@@ -297,20 +265,15 @@ const ExpenseAnalysisPage = () => {
     setAiError("");
     try {
       const payload = {
-        yearMonth: `${startDate}~${endDate}`, // 범위 설명
+        yearMonth: `${startDate}~${endDate}`,
         totalAmount,
-        budget: Number(rangeBudget || 0),     // ✅ 실제 예산(기간 비례 합산)
+        budget: Number(rangeBudget || 0),
         byCategory: byCategory.map((c) => ({ name: c.name, amount: c.amount })),
       };
       const res = await generateCautions(payload, { useLLM: true });
-      const list = Array.isArray(res)
-        ? res
-        : Array.isArray(res?.tips)
-        ? res.tips
-        : [];
+      const list = Array.isArray(res) ? res : Array.isArray(res?.tips) ? res.tips : [];
       setCautions(list.map(String).filter(Boolean).slice(0, 5));
-    } catch (err) {
-      console.warn("AI 주의 생성 실패(분석 탭):", err);
+    } catch {
       setAiError("주의 생성에 실패했어요. 다시 시도해 주세요.");
       setCautions([]);
     } finally {
@@ -318,17 +281,13 @@ const ExpenseAnalysisPage = () => {
     }
   };
 
-  // 데이터/예산 변경 시 자동 실행
   useEffect(() => {
     if (rows.length) runCautions();
-    else {
-      setCautions([]);
-      setAiError("");
-    }
+    else { setCautions([]); setAiError(""); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, rangeBudget]);
 
-  /* -------------------- 스타일 공통 -------------------- */
+  /* -------------------- 스타일 -------------------- */
   const panelStyle = {
     border: "1.5px solid #000",
     borderRadius: "10px",
@@ -336,30 +295,35 @@ const ExpenseAnalysisPage = () => {
     marginBottom: "30px",
   };
 
-  /* -------------------- 섹터(도넛 Path) 데이터 -------------------- */
+  // 두 패널 공통 높이(같게 유지)
+  const INFO_PANEL_H = 180;
+
+  /* -------------------- 도넛 데이터 -------------------- */
   const sectors = useMemo(() => {
     if (!byCategory.length || totalAmount <= 0) return [];
-    const gapDeg = 1.4;            // 조각 사이 간격(도)
+    const gapDeg = 1.4;
     const usable = 360 - byCategory.length * gapDeg;
-    const MIN_SPAN = 0.6;          // 너무 작은 조각은 숨김(겹침 방지)
+    const MIN_SPAN = 0.6;
     let cursor = 0;
 
-    return byCategory.map((c, i) => {
-      const ratio = c.amount / totalAmount;
-      let span = usable * ratio;
-      if (span < MIN_SPAN) return null;
-      const start = cursor;
-      const end = cursor + span;
-      cursor = end + gapDeg;
-      return {
-        name: c.name,
-        color: COLORS[i % COLORS.length],
-        start,
-        end,
-        amount: c.amount,
-        pct: Math.round(ratio * 100),
-      };
-    }).filter(Boolean);
+    return byCategory
+      .map((c, i) => {
+        const ratio = c.amount / totalAmount;
+        const span = usable * ratio;
+        if (span < MIN_SPAN) return null;
+        const start = cursor;
+        const end = cursor + span;
+        cursor = end + gapDeg;
+        return {
+          name: c.name,
+          color: COLORS[i % COLORS.length],
+          start,
+          end,
+          amount: c.amount,
+          pct: Math.round(ratio * 100),
+        };
+      })
+      .filter(Boolean);
   }, [byCategory, totalAmount]);
 
   /* -------------------- 렌더 -------------------- */
@@ -385,23 +349,13 @@ const ExpenseAnalysisPage = () => {
           alignItems: "stretch",
         }}
       >
-        {/* === 제목 === */}
+        {/* 제목 */}
         <div style={{ marginBottom: "30px", textAlign: "left" }}>
-          <h1
-            style={{
-              fontSize: "32px",
-              fontWeight: 800,
-              marginBottom: "8px",
-            }}
-          >
-            지출 분석
-          </h1>
-          <p style={{ color: "#555", fontSize: "15px" }}>
-            지출 패턴을 분석하고 인사이트를 얻으세요.
-          </p>
+          <h1 style={{ fontSize: "32px", fontWeight: 800, marginBottom: "8px" }}>지출 분석</h1>
+          <p style={{ color: "#555", fontSize: "15px" }}>지출 패턴을 분석하고 인사이트를 얻으세요.</p>
         </div>
 
-        {/* === 날짜 선택 === */}
+        {/* 날짜 선택 */}
         <div
           style={{
             ...panelStyle,
@@ -411,47 +365,21 @@ const ExpenseAnalysisPage = () => {
           }}
         >
           <div style={{ flex: 1 }}>
-            <label
-              style={{
-                display: "block",
-                fontWeight: 600,
-                marginBottom: "8px",
-              }}
-            >
-              시작일
-            </label>
+            <label style={{ display: "block", fontWeight: 600, marginBottom: "8px" }}>시작일</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px",
-                border: "1px solid #ccc",
-                borderRadius: "8px",
-              }}
+              style={{ width: "100%", padding: "10px", border: "1px solid #ccc", borderRadius: "8px" }}
             />
           </div>
           <div style={{ flex: 1 }}>
-            <label
-              style={{
-                display: "block",
-                fontWeight: 600,
-                marginBottom: "8px",
-              }}
-            >
-              종료일
-            </label>
+            <label style={{ display: "block", fontWeight: 600, marginBottom: "8px" }}>종료일</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px",
-                border: "1px solid #ccc",
-                borderRadius: "8px",
-              }}
+              style={{ width: "100%", padding: "10px", border: "1px solid #ccc", borderRadius: "8px" }}
             />
           </div>
           <div style={{ display: "flex", alignItems: "flex-end" }}>
@@ -473,21 +401,16 @@ const ExpenseAnalysisPage = () => {
           </div>
         </div>
 
-        {/* === 카테고리별 지출 분포(도넛 Path) — 바깥 흰 테두리 제거 === */}
+        {/* 카테고리별 분포 */}
         <div style={{ ...panelStyle, minHeight: "260px" }}>
-          <h3 style={{ fontSize: "17px", fontWeight: 700, marginBottom: "12px" }}>
-            카테고리별 지출 분포
-          </h3>
+          <h3 style={{ fontSize: "17px", fontWeight: 700, marginBottom: "12px" }}>카테고리별 지출 분포</h3>
 
           {!rows.length ? (
-            <p style={{ color: "#999" }}>
-              기간 내 지출 데이터가 없습니다. 날짜를 변경해 보세요.
-            </p>
+            <p style={{ color: "#999" }}>기간 내 지출 데이터가 없습니다. 날짜를 변경해 보세요.</p>
           ) : sectors.length === 0 ? (
             <p style={{ color: "#999" }}>집계할 데이터가 없습니다.</p>
           ) : (
             <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
-              {/* 도넛(섹터 Path) — 불필요한 배경 원과 boxShadow 제거 */}
               <svg
                 width="260"
                 height="260"
@@ -496,7 +419,6 @@ const ExpenseAnalysisPage = () => {
                 aria-label="카테고리별 지출 도넛 차트"
                 style={{ flex: "0 0 auto" }}
               >
-                {/* 각 섹터(겹침 없음, 균일 gap) — stroke 미사용 */}
                 {sectors.map((p, idx) => {
                   const d = donutPath(130, 130, 102, 68, p.start, p.end);
                   return (
@@ -505,8 +427,6 @@ const ExpenseAnalysisPage = () => {
                     </path>
                   );
                 })}
-
-                {/* 중앙 라벨 */}
                 <circle cx="130" cy="130" r="64" fill="#fff" stroke="#E5E7EB" />
                 <text x="130" y="122" textAnchor="middle" style={{ fontSize: 12, fontWeight: 700, fill: "#6B7280" }}>
                   총 지출
@@ -529,14 +449,7 @@ const ExpenseAnalysisPage = () => {
                       marginBottom: 10,
                     }}
                   >
-                    <div
-                      style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: 3,
-                        background: p.color,
-                      }}
-                    />
+                    <div style={{ width: 12, height: 12, borderRadius: 3, background: p.color }} />
                     <div style={{ fontWeight: 600 }}>{p.name || "기타"}</div>
                     <div style={{ textAlign: "right", fontSize: 13, color: "#374151" }}>
                       {formatKRW(p.amount)} ({p.pct}%)
@@ -548,12 +461,9 @@ const ExpenseAnalysisPage = () => {
           )}
         </div>
 
-        {/* === 기간 내 지출 추이(미니 막대 스파크) === */}
+        {/* 기간 내 추이 */}
         <div style={{ ...panelStyle, minHeight: "220px" }}>
-          <h3 style={{ fontSize: "17px", fontWeight: 700, marginBottom: "12px" }}>
-            기간 내 지출 추이
-          </h3>
-
+          <h3 style={{ fontSize: "17px", fontWeight: 700, marginBottom: "12px" }}>기간 내 지출 추이</h3>
           {!byDate.length ? (
             <p style={{ color: "#999" }}>표시할 데이터가 없습니다.</p>
           ) : (
@@ -594,36 +504,59 @@ const ExpenseAnalysisPage = () => {
               <div style={{ marginTop: 10, fontSize: 13, color: "#555" }}>
                 총 {formatKRW(totalAmount)} · 일평균 {formatKRW(avgDaily)}
                 {topDay ? ` · 최대 ${topDay.date} (${formatKRW(topDay.amount)})` : ""}
-                {Number.isFinite(rangeBudget) && rangeBudget > 0
-                  ? ` · 기간 예산 ${formatKRW(rangeBudget)}`
-                  : ""}
+                {Number.isFinite(rangeBudget) && rangeBudget > 0 ? ` · 기간 예산 ${formatKRW(rangeBudget)}` : ""}
               </div>
             </div>
           )}
         </div>
 
-        {/* === 인사이트 + 주의(모델) === */}
-        <div style={{ display: "flex", gap: "20px", marginBottom: "40px" }}>
-          <div style={{ ...panelStyle, flex: 1, minHeight: "150px" }}>
-            <h3 style={{ fontSize: "17px", fontWeight: 700, marginBottom: "12px" }}>
-              인사이트
-            </h3>
-            {!rows.length ? (
-              <p style={{ color: "#aaa" }}>데이터를 불러오면 자동으로 요약됩니다.</p>
-            ) : insights.length ? (
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {insights.map((t, i) => (
-                  <li key={i} style={{ marginBottom: 6 }}>
-                    {t}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p style={{ color: "#aaa" }}>표시할 인사이트가 없습니다.</p>
-            )}
+        {/* 인사이트 + 주의 (같은 높이, 주의만 내부 스크롤) */}
+        <div
+          style={{
+            display: "flex",
+            gap: "20px",
+            marginBottom: "40px",
+            alignItems: "stretch", // 두 카드 동일 높이로 늘림
+          }}
+        >
+          {/* 인사이트 */}
+          <div
+            style={{
+              ...panelStyle,
+              flex: 1,
+              height: `${INFO_PANEL_H}px`,   // ← 고정 높이(두 카드 동일)
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            <h3 style={{ fontSize: "17px", fontWeight: 700, marginBottom: "12px" }}>인사이트</h3>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {!rows.length ? (
+                <p style={{ color: "#aaa" }}>데이터를 불러오면 자동으로 요약됩니다.</p>
+              ) : insights.length ? (
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {insights.map((t, i) => (
+                    <li key={i} style={{ marginBottom: 6 }}>{t}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={{ color: "#aaa" }}>표시할 인사이트가 없습니다.</p>
+              )}
+            </div>
           </div>
 
-          <div style={{ ...panelStyle, flex: 1, minHeight: "150px" }}>
+          {/* 주의 */}
+          <div
+            style={{
+              ...panelStyle,
+              flex: 1,
+              height: `${INFO_PANEL_H}px`,   // ← 고정 높이(두 카드 동일)
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
             <div
               style={{
                 display: "flex",
@@ -632,9 +565,7 @@ const ExpenseAnalysisPage = () => {
                 marginBottom: 12,
               }}
             >
-              <h3 style={{ fontSize: "17px", fontWeight: 700, margin: 0 }}>
-                주의
-              </h3>
+              <h3 style={{ fontSize: "17px", fontWeight: 700, margin: 0 }}>주의</h3>
               <button
                 onClick={runCautions}
                 disabled={aiLoading || !rows.length}
@@ -651,25 +582,26 @@ const ExpenseAnalysisPage = () => {
               </button>
             </div>
 
-            {!rows.length ? (
-              <p style={{ color: "#aaa" }}>
-                기간 데이터가 준비되면 자동으로 주의를 생성합니다.
-              </p>
-            ) : aiError ? (
-              <p style={{ color: "#E85A00" }}>{aiError}</p>
-            ) : cautions.length ? (
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {cautions.map((t, i) => (
-                  <li key={i} style={{ marginBottom: 6 }}>
-                    {t}
-                  </li>
-                ))}
-              </ul>
-            ) : aiLoading ? (
-              <p style={{ color: "#777" }}>모델이 주의를 생성 중입니다…</p>
-            ) : (
-              <p style={{ color: "#aaa" }}>생성된 주의가 없습니다.</p>
-            )}
+            {/* ⚠️ 내용이 길어지면 이 내부에서만 스크롤 */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {!rows.length ? (
+                <p style={{ color: "#aaa" }}>
+                  기간 데이터가 준비되면 자동으로 주의를 생성합니다.
+                </p>
+              ) : aiError ? (
+                <p style={{ color: "#E85A00" }}>{aiError}</p>
+              ) : cautions.length ? (
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {cautions.map((t, i) => (
+                    <li key={i} style={{ marginBottom: 6 }}>{t}</li>
+                  ))}
+                </ul>
+              ) : aiLoading ? (
+                <p style={{ color: "#777" }}>모델이 주의를 생성 중입니다…</p>
+              ) : (
+                <p style={{ color: "#aaa" }}>생성된 주의가 없습니다.</p>
+              )}
+            </div>
           </div>
         </div>
       </div>

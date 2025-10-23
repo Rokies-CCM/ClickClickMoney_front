@@ -56,6 +56,7 @@ const Sidebar = ({ isOpen, closeSidebar, go }) => {
           { name: "정기결제", path: "/subscription" },
           { name: "분석", path: "/analysis" },
           { name: "AI 코치", path: "/chat" },
+          { name: "주식 현재가", path: "/stock-price" },
         ].map((item, i) => (
           <button
             key={i}
