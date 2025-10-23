@@ -14,8 +14,11 @@ import UploadCSV from "../components/accountbook/UploadCSV"; // CSV 업로드 �
 const DEFAULT_BUDGET_CATEGORY = "전체"; // 백엔드 category 필수 대응
 const MEMO_PREFETCH_LIMIT = 300;        // 월 조회 후 선로딩 최대 건수(과도한 호출 방지)
 
+// 🔑 미션-로컬 키(신규 우선, 레거시도 지원)
+const LS_MISSION_EXPENSES_V2 = "mission_expenses_v2"; // [{category,date,amount,memo}]
+const LS_MISSION_EXPENSES_V1 = "expenses";            // [{title,amount,date}] (레거시)
+
 /* -------------------- 유틸 -------------------- */
-// 어떤 응답 형태여도 배열로 변환
 const asArray = (v) => {
   if (Array.isArray(v)) return v;
   if (!v || typeof v !== "object") return [];
@@ -226,6 +229,31 @@ export default function AccountBookPage() {
     }
   };
 
+  // 🧩 보조: 월 범위 재조회 후 (category,date,amount)로 최신 항목을 찾아 id 매칭
+  const findLatestMatchingId = async ({ category, date, amount }, usedIds = new Set()) => {
+    const startDate = `${ym}-01`;
+    const endDate = `${ym}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, "0")}`;
+    try {
+      const fresh = await loadRange(startDate, endDate, { page: 0, size: 1000 });
+      const list = asArray(fresh).map(normalizeConsumption)
+        .filter(x =>
+          x.category === String(category) &&
+          x.date === String(date).slice(0, 10) &&
+          Number(x.amount) === Number(amount)
+        )
+        .sort((a, b) => (Number(b.id || 0) - Number(a.id || 0)));
+      for (const cand of list) {
+        const cid = cand?.id;
+        if (cid != null && !usedIds.has(String(cid))) {
+          return cid;
+        }
+      }
+    } catch (e) {
+      console.warn("[match] findLatestMatchingId failed:", e);
+    }
+    return null;
+  };
+
   /* -------- 서버 로드 -------- */
   const fetchMonthExpenses = async () => {
     const startDate = `${ym}-01`;
@@ -277,9 +305,234 @@ export default function AccountBookPage() {
     }
   };
 
+  /* -------- ✅ 미션 로컬 스토리지 → 백엔드 동기화 --------
+     새 포맷(mission_expenses_v2: {category,date,amount,memo})를 우선 업로드.
+     레거시(expenses: {title,amount,date})도 지원하되 카테고리는 "기타"로 매핑하고
+     title은 메모로 붙여줍니다. */
+  const syncArtifactsFromMissionLocal = async () => {
+    // 1) 예산: budget_current_month  (해당 월로 업로드)
+    try {
+      const raw = localStorage.getItem("budget_current_month");
+      if (raw != null) {
+        const amount = Math.floor(Number(raw) || 0);
+        if (amount > 0) {
+          await upsertBudget({ month: ym, category: DEFAULT_BUDGET_CATEGORY, amount });
+        }
+        localStorage.removeItem("budget_current_month");
+      }
+    } catch (e) {
+      console.warn("[mission-sync] budget sync failed:", e);
+    }
+
+    // 2-1) 신규 포맷: mission_expenses_v2
+    try {
+      const raw2 = localStorage.getItem(LS_MISSION_EXPENSES_V2);
+      if (raw2 != null) {
+        let arr = [];
+        try { arr = JSON.parse(raw2); } catch { arr = []; }
+        const targets = Array.isArray(arr)
+          ? arr.filter((x) =>
+              x && typeof x === "object" &&
+              String(x.date || "").startsWith(ym) &&
+              Number(x.amount) > 0 &&
+              (x.category || "").trim() !== ""
+            )
+          : [];
+
+        if (targets.length) {
+          const toCreate = targets.map(x => ({
+            category: String(x.category),
+            amount: Math.floor(Number(x.amount)),
+            date: String(x.date).slice(0, 10)
+          }));
+
+          let created = null;
+          try {
+            created = await saveMany(toCreate);
+          } catch (e) {
+            console.warn("[mission-sync] saveMany(v2) failed:", e);
+          }
+
+          // 1차: saveMany가 id를 돌려준 경우
+          const usedIds = new Set();
+          if (Array.isArray(created) && created.length) {
+            for (let i = 0; i < Math.min(created.length, targets.length); i++) {
+              const cid = created[i]?.id;
+              const memoText = (targets[i]?.memo ?? "").trim();
+              if (cid != null) usedIds.add(String(cid));
+              if (cid != null && memoText) {
+                try { await upsertMemo(cid, memoText); } catch (e) { console.warn("[mission-sync] upsertMemo(v2) failed:", e); }
+              }
+            }
+          }
+
+          // 2차: id가 없거나 일부만 있는 경우 → 재조회로 매칭해서 메모 붙이기
+          const needFallback = !Array.isArray(created) || created.length < targets.length;
+          if (needFallback) {
+            for (let i = 0; i < targets.length; i++) {
+              const memoText = (targets[i]?.memo ?? "").trim();
+              if (!memoText) continue; // 메모 없으면 스킵
+              const matchPayload = {
+                category: String(targets[i].category),
+                date: String(targets[i].date).slice(0, 10),
+                amount: Math.floor(Number(targets[i].amount))
+              };
+              const matchedId = await findLatestMatchingId(matchPayload, usedIds);
+              if (matchedId != null) {
+                usedIds.add(String(matchedId));
+                try { await upsertMemo(matchedId, memoText); } catch (e) { console.warn("[mission-sync] fallback upsertMemo(v2) failed:", e); }
+              }
+            }
+          }
+        }
+        localStorage.removeItem(LS_MISSION_EXPENSES_V2);
+      }
+    } catch (e) {
+      console.warn("[mission-sync] expense v2 sync failed:", e);
+    }
+
+    // 2-2) 레거시 포맷: expenses
+    try {
+      const raw = localStorage.getItem(LS_MISSION_EXPENSES_V1);
+      if (raw != null) {
+        let arr = [];
+        try { arr = JSON.parse(raw); } catch { arr = []; }
+        const targets = Array.isArray(arr)
+          ? arr.filter((x) => x && typeof x === "object" && String(x.date || "").startsWith(ym))
+          : [];
+
+        const payload = targets
+          .map((x) => ({
+            category: "기타",
+            amount: Math.floor(Number(x.amount) || 0),
+            date: String(x.date || "").slice(0, 10),
+            __title: (x.title || "").trim(), // 메모로 이동
+          }))
+          .filter((p) => p.amount > 0 && p.date);
+
+        if (payload.length) {
+          let created = null;
+          try {
+            created = await saveMany(payload.map(({ category, amount, date }) => ({ category, amount, date })));
+          } catch (e) {
+            console.warn("[mission-sync] saveMany(v1) failed:", e);
+          }
+
+          const usedIds = new Set();
+          // 1차: saveMany가 id를 돌려준 경우
+          if (Array.isArray(created) && created.length) {
+            for (let i = 0; i < Math.min(created.length, payload.length); i++) {
+              const cid = created[i]?.id;
+              const memoText = payload[i]?.__title;
+              if (cid != null) usedIds.add(String(cid));
+              if (cid != null && memoText) {
+                try { await upsertMemo(cid, memoText); } catch (e) { console.warn("[mission-sync] upsertMemo(v1) failed:", e); }
+              }
+            }
+          }
+          // 2차: 재조회 폴백
+          const needFallback = !Array.isArray(created) || created.length < payload.length;
+          if (needFallback) {
+            for (let i = 0; i < payload.length; i++) {
+              const memoText = payload[i]?.__title;
+              if (!memoText) continue;
+              const matchPayload = {
+                category: payload[i].category,
+                date: payload[i].date,
+                amount: payload[i].amount
+              };
+              const matchedId = await findLatestMatchingId(matchPayload, usedIds);
+              if (matchedId != null) {
+                usedIds.add(String(matchedId));
+                try { await upsertMemo(matchedId, memoText); } catch (e) { console.warn("[mission-sync] fallback upsertMemo(v1) failed:", e); }
+              }
+            }
+          }
+        }
+        localStorage.removeItem(LS_MISSION_EXPENSES_V1);
+      }
+    } catch (e) {
+      console.warn("[mission-sync] expense v1 sync failed:", e);
+    }
+  };
+
+  // ✅ 월 변경/초기 로딩 시: (1) 미션 로컬 → 서버 동기화 → (2) 예산/지출 조회
   useEffect(() => {
-    fetchMonthExpenses();
-    fetchMonthBudgets();
+    let alive = true;
+    (async () => {
+      try {
+        await syncArtifactsFromMissionLocal();
+      } catch (e) {
+        console.warn("[mission-sync] failed:", e);
+      }
+      if (!alive) return;
+      await Promise.all([fetchMonthBudgets(), fetchMonthExpenses()]);
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ym]);
+
+  /* -------- 미션쪽 실시간 이벤트 수신 --------
+     MissionPage가 아래 형태로 이벤트를 쏩니다.
+     window.dispatchEvent(new CustomEvent("expenses:saved", {
+       detail: { item: { category, date, amount, memo } }
+     }))
+  */
+  useEffect(() => {
+    const onExpenseSaved = async (e) => {
+      const item = e?.detail?.item;
+      if (!item || typeof item !== "object") return;
+
+      // 견고한 파싱(레거시/누락 대응)
+      const category = String(item.category || "기타");
+      const date = String(item.date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+      const amount = Math.floor(Number(item.amount) || 0);
+      const memo = String(item.memo || "").trim();
+
+      if (!category || !date || !(amount > 0)) return;
+
+      try {
+        const created = await saveMany([{ category, amount, date }]);
+        let createdId = Array.isArray(created) ? created[0]?.id : (created?.id ?? null);
+
+        if (createdId == null && memo) {
+          // 폴백: 재조회 매칭
+          const matchedId = await findLatestMatchingId({ category, date, amount });
+          if (matchedId != null) createdId = matchedId;
+        }
+
+        if (createdId != null && memo) {
+          await upsertMemo(createdId, memo);
+          setMemoMap((prev) => ({ ...prev, [String(createdId)]: memo }));
+        }
+
+        // 같은 달이면 즉시 새로고침
+        if (date.startsWith(ym)) {
+          await fetchMonthExpenses();
+        }
+      } catch (err) {
+        console.warn("[event expenses:saved] persist failed:", err);
+        // 실패해도 로컬 키가 있다면 월 전환/재진입 시 syncArtifactsFromMissionLocal가 처리
+      }
+    };
+
+    const onBudgetSaved = async (e) => {
+      const amount = Math.floor(Number(e?.detail?.amount) || 0);
+      if (amount <= 0) return;
+      try {
+        await upsertBudget({ month: ym, category: DEFAULT_BUDGET_CATEGORY, amount });
+        await fetchMonthBudgets();
+      } catch (err) {
+        console.warn("[event budget:saved] upsert failed:", err);
+      }
+    };
+
+    window.addEventListener("expenses:saved", onExpenseSaved);
+    window.addEventListener("budget:saved", onBudgetSaved);
+    return () => {
+      window.removeEventListener("expenses:saved", onExpenseSaved);
+      window.removeEventListener("budget:saved", onBudgetSaved);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ym]);
 
@@ -367,13 +620,8 @@ export default function AccountBookPage() {
         let createdId = Array.isArray(created) ? created[0]?.id : (created?.id ?? null);
 
         if (createdId == null) {
-          const startDate = `${ym}-01`;
-          const endDate = `${ym}-${String(new Date(year, monthIndex + 1, 0).getDate()).padStart(2, "0")}`;
-          const fresh = await loadRange(startDate, endDate, { page: 0, size: 1000 });
-          const list = asArray(fresh).map(normalizeConsumption)
-            .filter(x => x.category === category && x.date === date && Number(x.amount) === Number(amount))
-            .sort((a, b) => (Number(b.id || 0) - Number(a.id || 0)));
-          createdId = list[0]?.id ?? null;
+          const matchedId = await findLatestMatchingId({ category, date, amount });
+          if (matchedId != null) createdId = matchedId;
         }
 
         if (createdId != null && memoVal.length > 0) {
@@ -479,13 +727,13 @@ export default function AccountBookPage() {
           />
         </div>
 
-        {/* Budget (요청대로 진행 그래프 제거) */}
+        {/* Budget */}
         <div style={{ textAlign: "left", fontSize: 18, fontWeight: 700, marginBottom: 24 }}>
           {year}년 {monthIndex + 1}월 목표 예산{" "}
           <span style={{ marginLeft: 10, fontWeight: 800 }}>{monthlyBudget.toLocaleString()}원</span>
         </div>
 
-        {/* Summary cards — 카테고리 분포 카드 복원 + AI 팁 자동 1~2줄 */}
+        {/* Summary cards */}
         <div style={cardsRowStyle}>
           <SummaryCard
             title="총 지출"
@@ -728,7 +976,7 @@ const btnPrimary = {
 };
 const btnGhost = {
   background: "transparent",
-  border: "1px solid #ddd",
+  border: "1px solid " + "#ddd",
   borderRadius: 8,
   padding: "6px 10px",
   cursor: "pointer"
