@@ -1,3 +1,4 @@
+// src/pages/StockPricePage.jsx
 import { useEffect, useState, useRef } from "react";
 import {
   fetchMarketCapTop,
@@ -6,7 +7,8 @@ import {
 } from "../api/stock";
 
 /* ===== 상수 ===== */
-const MAX_CARDS = 12; // 항상 12개 고정
+const MAX_CARDS = 12;
+const TABS = ["거래량", "시총"];
 
 /* ===== 공용 스타일 ===== */
 const pageStyle = {
@@ -16,22 +18,10 @@ const pageStyle = {
   display: "flex",
   flexDirection: "column",
 };
-const containerStyle = {
-  width: "100%",
-  maxWidth: "1200px",
-  margin: "0 auto",
-};
-const headerTitle = {
-  fontSize: 32,
-  fontWeight: 800,
-  marginBottom: 8,
-};
-const headerDesc = {
-  color: "#555",
-  fontSize: 15,
-};
+const containerStyle = { width: "100%", maxWidth: "1200px", margin: "0 auto" };
+const headerTitle = { fontSize: 32, fontWeight: 800, marginBottom: 8 };
+const headerDesc = { color: "#555", fontSize: 15 };
 
-/* ===== 상단 바 (탭 + 새로고침) ===== */
 const topBarStyle = (isNarrow) => ({
   ...containerStyle,
   display: "grid",
@@ -40,11 +30,7 @@ const topBarStyle = (isNarrow) => ({
   gap: 10,
   margin: "12px auto 12px",
 });
-const tabsWrapStyle = {
-  display: "flex",
-  gap: 12,
-  flexWrap: "wrap",
-};
+const tabsWrapStyle = { display: "flex", gap: 12, flexWrap: "wrap" };
 const pill = (active) => ({
   background: active ? "#000" : "rgba(0,0,0,0.06)",
   color: active ? "#fff" : "#000",
@@ -70,14 +56,14 @@ const refreshBtn = (loading) => ({
   cursor: loading ? "not-allowed" : "pointer",
 });
 
-/* ===== 그리드 & 카드 ===== */
 const gridWrap = (cols) => ({
   ...containerStyle,
   display: "grid",
-  gridTemplateColumns: `repeat(${cols}, minmax(320px, 1fr))`, // 데스크톱은 3열
+  gridTemplateColumns: `repeat(${cols}, minmax(320px, 1fr))`,
   gap: 24,
   marginTop: 10,
 });
+
 const cardStyle = {
   border: "1.5px solid #000",
   borderRadius: 16,
@@ -102,6 +88,7 @@ const nameStyle = {
   lineHeight: "1.25",
 };
 const codeStyle = { color: "#888", fontSize: 12, marginTop: 3 };
+
 const chipBase = {
   display: "inline-block",
   padding: "4px 10px",
@@ -112,6 +99,7 @@ const chipBase = {
   fontSize: 12,
   whiteSpace: "nowrap",
 };
+
 const sectionLabel = { fontSize: 14, color: "#666", marginBottom: 6 };
 const priceStyle = { fontSize: 24, fontWeight: 900 };
 const rowKV = {
@@ -124,8 +112,11 @@ const rowKV = {
 };
 
 /* ===== 유틸 ===== */
-const formatNumber = (n) =>
-  (Number.isFinite(n) ? n : 0).toLocaleString("ko-KR");
+const num = (v) => Number(String(v ?? 0).replace(/[,+]/g, ""));
+const formatNumber = (n) => (Number.isFinite(n) ? n : 0).toLocaleString("ko-KR");
+const pctToNumber = (v) => Number(String(v ?? 0).replace("%", ""));
+
+// 거래량 탭 칩(등락)
 const changeChip = (change, rateRaw) => {
   const changeNum = Number(change) || 0;
   const rate = Number(rateRaw) || 0;
@@ -139,68 +130,85 @@ const changeChip = (change, rateRaw) => {
   };
 };
 
-/* ===== 응답 파싱 ===== */
-const parseTopVolume = (body) => {
-  const safeParse = (b) =>
-    typeof b === "string" ? (() => { try { return JSON.parse(b); } catch { return {}; } })() : b || {};
-  const dataObj = safeParse(body);
+// 시총 탭 칩(랭크)
+const rankChip = (rank) => ({
+  text: `#${rank}위`,
+  style: { ...chipBase, color: "#333" },
+});
 
-  const pickFirstArray = (obj) => {
-    const seen = new Set();
-    const q = [obj];
-    while (q.length) {
-      const cur = q.shift();
-      if (!cur || typeof cur !== "object") continue;
-      for (const v of Object.values(cur)) {
-        if (Array.isArray(v) && v.length) return v;
-        if (v && typeof v === "object" && !seen.has(v)) { seen.add(v); q.push(v); }
-      }
-    }
-    return [];
-  };
+// 시총 축약 표기 (조/억)
+const formatKRWShort = (n) => {
+  const abs = Math.abs(n);
+  if (abs >= 1e12) {
+    const v = n / 1e12; // 조
+    return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)}조`;
+  }
+  if (abs >= 1e8) {
+    const v = n / 1e8; // 억
+    return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)}억`;
+  }
+  return `${formatNumber(n)}원`;
+};
+
+/* ===== 응답 파싱 ===== */
+// 거래량 탭: tdy_trde_qty_upper -> 현재가는 등락률/전일대비로 역산
+const parseTopVolume = (body) => {
+  const b =
+    typeof body === "string"
+      ? (() => {
+          try {
+            return JSON.parse(body);
+          } catch {
+            return {};
+          }
+        })()
+      : body || {};
 
   const list =
-    dataObj?.output?.item_inq_rank ||
-    dataObj?.output1?.item_inq_rank ||
-    dataObj?.output2?.item_inq_rank ||
-    dataObj?.output?.list ||
-    dataObj?.output1?.list ||
-    dataObj?.item_inq_rank ||
-    dataObj?.list ||
-    dataObj?.items ||
-    dataObj?.data ||
-    pickFirstArray(dataObj);
+    b?.tdy_trde_qty_upper ||
+    b?.output?.tdy_trde_qty_upper ||
+    b?.output1?.tdy_trde_qty_upper ||
+    b?.output?.list ||
+    b?.list ||
+    [];
 
-  const toNum = (v) => Number(String(v ?? 0).replace(/[+,]/g, ""));
-  const toRate = (v) => Number(String(v ?? 0).replace("%", ""));
-  const arr = Array.isArray(list) ? list : [];
+  return (Array.isArray(list) ? list : []).map((row, i) => {
+    const code = row.stk_cd || row.code || `CODE${i + 1}`;
+    const name = row.stk_nm || row.name || `종목${i + 1}`;
+    const diff = num(row.cur_prc); // 전일대비 금액
+    const rate = pctToNumber(row.flu_rt); // 등락률
+    const volume = num(row.trde_qty);
 
-  return arr.map((row, i) => {
-    const code = row.stk_cd || row.code || row.mksc_shrn_iscd || row.stck_shrn_iscd || `CODE${i + 1}`;
-    const name = row.stk_nm || row.name || row.hts_kor_isnm || row.isu_abbrv || `종목${i + 1}`;
-    const price = toNum(row.stck_prpr ?? row.prpr ?? row.curr_prc ?? row.past_curr_prc ?? row.price);
-    const change = toNum(row.prdy_vrss ?? row.prdy_vs ?? row.diff ?? row.cmpprevdd_prc);
-    const rate = toRate(row.prdy_ctrt ?? row.base_comp_chgr ?? row.rate ?? row.cmpprevdd_rate);
-    const volume = toNum(row.acml_vol ?? row.trd_qty ?? row.tr_quan ?? row.vol);
-    return { name, code, price, change, rate, volume };
+    let price;
+    if (Number.isFinite(rate) && rate !== 0) {
+      // prev = diff * 100 / rate; current = prev + diff
+      price = diff * (100 / rate + 1);
+    } else {
+      price = NaN; // 표시 불가 시 — 처리
+    }
+
+    return { name, code, price, change: diff, rate, volume };
   });
 };
 
+// 시총 탭: 시가총액 중심으로 표시
 const parseMarketCapList = (list) =>
   (Array.isArray(list) ? list : []).map((row, i) => {
-    const toNum = (v) => Number(String(v ?? 0).replace(/[+,]/g, ""));
+    const price = num(row.price ?? row.stck_prpr ?? row.prpr);
+    const change = num(row.change_price ?? row.prdy_vrss ?? row.diff);
+    const rate = Number(String(row.change_rate ?? row.prdy_ctrt ?? row.rate ?? 0).replace("%", ""));
+    const volume = num(row.volume ?? row.acml_vol ?? row.trd_qty);
     return {
+      rank: row.rank ?? i + 1,
       name: row.name || row.stk_nm || `종목${i + 1}`,
       code: row.code || row.stk_cd || `CODE${i + 1}`,
-      price: toNum(row.price ?? row.stck_prpr ?? row.prpr),
-      change: toNum(row.change_price ?? row.prdy_vrss ?? row.diff),
-      rate: Number((row.change_rate ?? row.prdy_ctrt ?? row.rate ?? 0).toString().replace("%", "")),
-      volume: toNum(row.volume ?? row.acml_vol ?? row.trd_qty),
+      price,
+      change,
+      rate,
+      volume,
+      marketCap: Number(String(row.market_cap ?? 0).replace(/[,+]/g, "")),
     };
   });
-
-/* ===== 탭 ===== */
-const TABS = ["실시간", "거래량"];
 
 export default function StockPricePage() {
   const [activeTab, setActiveTab] = useState(
@@ -213,15 +221,22 @@ export default function StockPricePage() {
   const [apiBaseShown, setApiBaseShown] = useState("");
   const inFlightRef = useRef(false);
 
-  // 데스크톱 3열, 태블릿 2열, 모바일 1열
+  // 반응형 열 개수
   const [cols, setCols] = useState(3);
-  const [isNarrow, setIsNarrow] = useState(false); // 상단 바 배치
+  const [isNarrow, setIsNarrow] = useState(false);
   useEffect(() => {
     const onResize = () => {
       const w = window.innerWidth;
-      if (w >= 1100) { setCols(3); setIsNarrow(false); }
-      else if (w >= 760) { setCols(2); setIsNarrow(false); }
-      else { setCols(1); setIsNarrow(true); }
+      if (w >= 1100) {
+        setCols(3);
+        setIsNarrow(false);
+      } else if (w >= 760) {
+        setCols(2);
+        setIsNarrow(false);
+      } else {
+        setCols(1);
+        setIsNarrow(true);
+      }
     };
     onResize();
     window.addEventListener("resize", onResize);
@@ -233,7 +248,7 @@ export default function StockPricePage() {
   }, [activeTab]);
 
   const fetchStocksByTab = async (tab) => {
-    if (tab === "실시간") {
+    if (tab === "거래량") {
       const { data, usedBase } = await fetchTopVolume({
         env: "real",
         market_type: "000",
@@ -255,7 +270,6 @@ export default function StockPricePage() {
     setErr("");
     try {
       const data = await fetchStocksByTab(activeTab);
-      // 항상 12개로 맞춤(부족하면 있는 만큼만 표시)
       setItems((Array.isArray(data) ? data : []).slice(0, MAX_CARDS));
       setUpdatedAt(new Date());
     } catch (e) {
@@ -275,13 +289,11 @@ export default function StockPricePage() {
 
   return (
     <section style={pageStyle}>
-      {/* 헤더: 탭과 같은 컨테이너 왼쪽 기준 */}
       <div style={{ ...containerStyle, marginBottom: 8 }}>
         <h1 style={headerTitle}>주식 / 증권</h1>
         <p style={headerDesc}>주요 종목 시세를 카드로 간결하게 확인해 보세요.</p>
       </div>
 
-      {/* 탭 + 새로고침 (Grid 배치) */}
       <div style={topBarStyle(isNarrow)}>
         <div style={tabsWrapStyle} role="tablist" aria-label="Stock tabs">
           {TABS.map((t) => (
@@ -300,7 +312,11 @@ export default function StockPricePage() {
 
         <div style={rightWrap(isNarrow)}>
           <span style={{ fontSize: 12, color: "#666" }}>
-            {loading ? "로딩 중…" : updatedAt ? `최근 업데이트: ${updatedAt.toLocaleTimeString("ko-KR")}` : ""}
+            {loading
+              ? "로딩 중…"
+              : updatedAt
+              ? `최근 업데이트: ${updatedAt.toLocaleTimeString("ko-KR")}`
+              : ""}
           </span>
           {!isNarrow && (
             <button onClick={load} disabled={loading} style={refreshBtn(loading)}>
@@ -310,7 +326,6 @@ export default function StockPricePage() {
         </div>
       </div>
 
-      {/* 카드 그리드: 항상 12개 */}
       <div style={gridWrap(cols)}>
         {err ? (
           <div
@@ -331,7 +346,8 @@ export default function StockPricePage() {
               key={`skeleton-${idx}`}
               style={{
                 ...cardStyle,
-                background: "linear-gradient(90deg, #f4f4f4 25%, #eee 37%, #f4f4f4 63%)",
+                background:
+                  "linear-gradient(90deg, #f4f4f4 25%, #eee 37%, #f4f4f4 63%)",
                 backgroundSize: "400% 100%",
                 animation: "pulse 1.4s ease infinite",
                 height: 160,
@@ -340,14 +356,21 @@ export default function StockPricePage() {
           ))
         ) : (
           items.map((s, idx) => {
-            const chip = changeChip(s.change, s.rate);
+            const isMarketCapTab = activeTab === "시총";
+            const chip = isMarketCapTab ? rankChip(s.rank) : changeChip(s.change, s.rate);
+
+            const priceText = Number.isFinite(s.price)
+              ? `${formatNumber(Math.round(s.price))}원`
+              : "—원";
+
             return (
               <article
                 key={`${s.code}-${idx}`}
                 style={cardStyle}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = "translateY(-6px)";
-                  e.currentTarget.style.boxShadow = "0 6px 12px rgba(0,0,0,0.08)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 12px rgba(0,0,0,0.08)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = "translateY(0)";
@@ -364,12 +387,15 @@ export default function StockPricePage() {
 
                 <div style={{ textAlign: "left", marginTop: 6 }}>
                   <div style={sectionLabel}>현재가</div>
-                  <div style={priceStyle}>{formatNumber(s.price)}원</div>
+                  <div style={priceStyle}>{priceText}</div>
 
-                  <div style={rowKV}>
-                    <span>거래량</span>
-                    <strong>{formatNumber(s.volume)}</strong>
-                  </div>
+                  {isMarketCapTab && Number.isFinite(s.marketCap) && s.marketCap > 0 && (
+                    <div style={rowKV}>
+                      <span>시가총액</span>
+                      <strong>{formatKRWShort(s.marketCap)}원</strong>
+                    </div>
+                  )}
+
                 </div>
               </article>
             );
@@ -377,7 +403,6 @@ export default function StockPricePage() {
         )}
       </div>
 
-      {/* 아주 좁을 때만 플로팅 새로고침 버튼 */}
       {isNarrow && (
         <button
           onClick={load}
@@ -400,10 +425,8 @@ export default function StockPricePage() {
         </button>
       )}
 
-      {/* 스켈레톤 애니메이션 */}
       <style>{`@keyframes pulse{0%{background-position:100% 50%}100%{background-position:0 50%}}`}</style>
 
-      {/* API 베이스 안내 */}
       <div style={{ ...containerStyle, marginTop: 18 }}>
         <p style={{ fontSize: 12, color: "#999" }}>
           API Base: <code>{apiBaseShown || getResolvedStockApiBase() || "(auto)"}</code>
