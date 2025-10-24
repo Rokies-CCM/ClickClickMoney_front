@@ -84,6 +84,7 @@ const ChatbotPage = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState([]);
 
   // 자동 스크롤 참조
   const bottomRef = useRef(null);
@@ -134,7 +135,7 @@ const ChatbotPage = () => {
 
     try {
       // 스트리밍 우선
-      const reader = await askChat({ question: q, stream: true });
+      const reader = await askChat({ question: q, stream: true, chatHistory: chatHistory });
       appendBot(""); // 누적용 빈 말풍선
       scrollToBottom("auto");
 
@@ -182,12 +183,16 @@ const ChatbotPage = () => {
                 obj?.provider !== undefined ||
                 obj?.model !== undefined ||
                 obj?.source_buttons !== undefined ||
-                obj?.sourceButtons !== undefined;
+                obj?.sourceButtons !== undefined ||
+                obj?.chat_history !== undefined;
 
               if (isMeta) {
                 const btns = obj.source_buttons ?? obj.sourceButtons ?? [];
                 if (Array.isArray(btns) && btns.length) {
                   setLastBotButtons(btns);
+                }
+                if (obj.chat_history) {
+                  setChatHistory(obj.chat_history);
                 }
                 // 메타에는 본문 델타 없음
               } else {
@@ -223,8 +228,11 @@ const ChatbotPage = () => {
       if (import.meta.env.DEV) console.error("[chat] streaming failed:", streamErr);
       // 스트리밍 실패 시 JSON 폴백
       try {
-        const data = await askChat({ question: q, stream: false });
+        const data = await askChat({ question: q, stream: false, chatHistory: chatHistory });
         appendBot(cleanText(data.answer ?? JSON.stringify(data)));
+        if (data.chat_history) {
+          setChatHistory(data.chat_history);
+        }
         const btns = data.source_buttons ?? data.sourceButtons ?? [];
         if (Array.isArray(btns) && btns.length) {
           setLastBotButtons(btns);

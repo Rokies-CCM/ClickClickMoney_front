@@ -2,11 +2,11 @@
 // 스트리밍(SSE) 우선, 불가 시 JSON 폴백
 const CHATBOT_BASE = import.meta.env.VITE_CHATBOT_URL || "/chatbot";
 
-export async function askChat({ question, stream = true, domain, facts }) {
+export async function askChat({ question, stream = true, domain, facts, chatHistory }) {
   const res = await fetch(`${CHATBOT_BASE}/v1/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, stream, domain, facts }),
+    body: JSON.stringify({ question, stream, domain, facts, chat_history: chatHistory }),
   });
 
   if (stream) {

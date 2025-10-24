@@ -81,3 +81,10 @@ export const loadConsumptions = (params = {}) => {
 
 export const updateConsumption = updateOne;
 export const deleteConsumption = deleteOne;
+
+/* ---- 정기결제 연동용 최소 헬퍼 (선택 사용) ---- */
+/** 정기결제 카테고리 이름 상수 */
+export const SUBSCRIPTION_CATEGORY_NAME = "구독";
+/** 필요 시 월 데이터만 미리 로드 (필터는 페이지에서 수행) */
+export const loadSubscriptionsOfMonth = (ym, opts = {}) =>
+  loadMonth(ym, { page: 0, size: 1000, ...opts });

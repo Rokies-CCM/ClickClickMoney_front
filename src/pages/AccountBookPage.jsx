@@ -13,6 +13,7 @@ import UploadCSV from "../components/accountbook/UploadCSV"; // CSV 업로드 �
 
 const DEFAULT_BUDGET_CATEGORY = "전체"; // 백엔드 category 필수 대응
 const MEMO_PREFETCH_LIMIT = 300;        // 월 조회 후 선로딩 최대 건수(과도한 호출 방지)
+const SUBSCRIPTION_CATEGORY_NAME = "구독"; // ✅ 정기결제 카테고리
 
 // 🔑 미션-로컬 키(신규 우선, 레거시도 지원)
 const LS_MISSION_EXPENSES_V2 = "mission_expenses_v2"; // [{category,date,amount,memo}]
@@ -82,6 +83,17 @@ const safeExtractMemo = (resp) => {
   return String(pick(resp)).trim();
 };
 
+/** 문자열 날짜(YYYY-MM-DD) + n개월 */
+const addMonths = (ds, n = 1) => {
+  if (!ds) return "";
+  const [y, m, d] = ds.split("-").map((v) => parseInt(v, 10));
+  const base = new Date(y, (m || 1) - 1, d || 1);
+  base.setMonth(base.getMonth() + n);
+  const mm = String(base.getMonth() + 1).padStart(2, "0");
+  const dd = String(base.getDate()).padStart(2, "0");
+  return `${base.getFullYear()}-${mm}-${dd}`;
+};
+
 export default function AccountBookPage() {
   /* -------- Month state -------- */
   const initYm = () => {
@@ -136,6 +148,71 @@ export default function AccountBookPage() {
     return acc;
   }, [expenses]);
 
+  /* -------- ✅ 월 구독 항목 파생/요약 -------- */
+  const subscriptionsThisMonth = useMemo(() => {
+    const subs = asArray(expenses).filter((e) => (e.category || "") === SUBSCRIPTION_CATEGORY_NAME);
+    // 메모 병합
+    const withMemo = subs.map((e) => {
+      const memoText =
+        memoMap[String(e.id)] ??
+        memoMap[e.id] ??
+        e.memo ?? e.description ?? e.note ?? e.desc ?? "";
+      return { ...e, memo: memoText };
+    });
+
+    // 벤더/서비스 키 (메모 기반 간단 추정)
+    const serviceKey = (txt) => {
+      const t = String(txt || "").trim().toLowerCase();
+      if (!t) return "";
+      // 메모 첫 토큰 정도만 그룹 키로 사용
+      return t.split(/[\s\u2013_:|,·/-]+/)[0] || t;
+    };
+
+    const byService = new Map();
+    for (const it of withMemo) {
+      const key = serviceKey(it.memo) || `id-${it.id}`;
+      const cur = byService.get(key) || [];
+      cur.push(it);
+      byService.set(key, cur);
+    }
+
+    let monthTotal = 0;
+    const groups = [];
+    for (const [k, arr] of byService.entries()) {
+      const total = arr.reduce((s, x) => s + Number(x.amount || 0), 0);
+      monthTotal += total;
+      const latest = [...arr].sort((a, b) => (a.date > b.date ? -1 : 1))[0];
+      groups.push({
+        key: k,
+        total,
+        count: arr.length,
+        latestDate: latest?.date || "",
+        nextBillingDate: addMonths(latest?.date || "", 1),
+        items: arr
+      });
+    }
+
+    // 중복 감지: 같은 서비스키에서 같은 달에 2건 이상
+    const duplicates = groups.filter((g) => g.count >= 2);
+    // 절감 가능액: 각 중복 그룹에서 최댓값만 유지하고 나머지 합
+    const savableAmount = duplicates.reduce((sum, g) => {
+      const amounts = g.items.map((x) => Number(x.amount || 0));
+      const maxKeep = Math.max(...amounts);
+      const others = amounts.reduce((s, v) => s + v, 0) - maxKeep;
+      return sum + Math.max(0, others);
+    }, 0);
+
+    return {
+      list: withMemo,                       // 구독 항목 원본 목록(메모 병합)
+      groups,                               // 서비스 단위 그룹
+      monthTotal,                           // 월 구독 총액
+      activeCount: groups.length,           // 활성 구독 수 (서비스 기준)
+      duplicates,                           // 중복 그룹
+      savableAmount                         // 절감 가능액(규칙 기반)
+      // unused: []   // 과거 사용 로그 없으면 판단 어렵기 때문에 제외(원하면 규칙 추가)
+    };
+  }, [expenses, memoMap]);
+
   /* -------- Modal/Input state -------- */
   const [isBudgetOpen, setIsBudgetOpen] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
@@ -155,8 +232,10 @@ export default function AccountBookPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
 
+  // ✅ 카테고리에 '구독' 추가 (배열 맨 뒤: 기존 인덱스→ID 규칙 보존)
   const categories = [
-    "생활", "식비", "교통", "주거", "통신", "쇼핑", "카페/간식", "의료/건강", "문화/여가", "기타"
+    "생활", "식비", "교통", "주거", "통신", "쇼핑", "카페/간식", "의료/건강", "문화/여가", "기타",
+    SUBSCRIPTION_CATEGORY_NAME
   ];
 
   /* -------- Month navigation -------- */
@@ -437,6 +516,32 @@ export default function AccountBookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ym]);
 
+  /* -------- ✅ 정기결제 탭으로 브로드캐스트 -------- */
+  useEffect(() => {
+    // 구독 목록/요약이 바뀔 때마다 이벤트 발행
+    const detail = {
+      ym,
+      monthTotal: subscriptionsThisMonth.monthTotal,
+      activeCount: subscriptionsThisMonth.activeCount,
+      savableAmount: subscriptionsThisMonth.savableAmount,
+      duplicates: subscriptionsThisMonth.duplicates?.map(g => ({
+        key: g.key,
+        count: g.count,
+        total: g.total,
+        latestDate: g.latestDate,
+        nextBillingDate: g.nextBillingDate
+      })) || [],
+      list: subscriptionsThisMonth.list.map(it => ({
+        id: it.id,
+        date: it.date,
+        amount: Number(it.amount || 0),
+        memo: it.memo || "",
+        nextBillingDate: addMonths(it.date, 1)
+      }))
+    };
+    window.dispatchEvent(new CustomEvent("subscriptions:update", { detail }));
+  }, [ym, subscriptionsThisMonth.monthTotal, subscriptionsThisMonth.activeCount, subscriptionsThisMonth.savableAmount, subscriptionsThisMonth.list.length, subscriptionsThisMonth.duplicates?.length]);
+
   /* -------- 미션쪽 실시간 이벤트 수신 -------- */
   useEffect(() => {
     const onExpenseSaved = async (e) => {
@@ -489,6 +594,20 @@ export default function AccountBookPage() {
       window.removeEventListener("expenses:saved", onExpenseSaved);
       window.removeEventListener("budget:saved", onBudgetSaved);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ym]);
+
+  /* -------- 외부(정기 결제 탭 등)에서 소비내역 변경 시 반영 -------- */
+  useEffect(() => {
+    const onChanged = async (e) => {
+      const changedYm = String(e?.detail?.ym || "");
+      // 같은 월만 갱신 (월 정보가 없으면 무조건 갱신)
+      if (!changedYm || changedYm === ym) {
+        await fetchMonthExpenses();   // 서버에서 현재 월 지출 재조회 → 상태 갱신
+      }
+    };
+    window.addEventListener("consumptions:changed", onChanged);
+    return () => window.removeEventListener("consumptions:changed", onChanged);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ym]);
 
@@ -586,6 +705,7 @@ export default function AccountBookPage() {
       }
       handleCloseExpenseModal();
       await fetchMonthExpenses();
+      window.dispatchEvent(new CustomEvent("consumptions:changed", { detail: { ym } }));
     } catch (err) {
       console.warn("지출 저장 실패:", err);
       alert("지출 저장에 실패했어요.");
@@ -602,6 +722,7 @@ export default function AccountBookPage() {
     try {
       await deleteOne(id);
       await fetchMonthExpenses();
+      window.dispatchEvent(new CustomEvent("consumptions:changed", { detail: { ym } }));
     } catch (err) {
       console.warn("지출 삭제 실패:", err);
       alert("지출 삭제에 실패했어요.");
@@ -649,7 +770,7 @@ export default function AccountBookPage() {
   }, [ym, totalExpense, monthlyBudget, byCategory.length]);
 
   /* -------- Render -------- */
-  // 리스트 스크롤 제어용 상수
+  // ✅ 리스트 스크롤 제어용 상수
   const ROW_MIN_H = 56;
   const MAX_VISIBLE_ROWS = 4;
   const LIST_MAX_PX = ROW_MIN_H * MAX_VISIBLE_ROWS;
@@ -713,7 +834,7 @@ export default function AccountBookPage() {
           />
         </div>
 
-        {/* Expense list — 4개 초과 시 내부 스크롤 */}
+        {/* Expense list — ✅ 4개 초과 시 내부 스크롤 */}
         <div style={panelStyle}>
           <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>지출 내역 ({ym})</h3>
 
