@@ -1,6 +1,6 @@
 # Node.js 22.16 버전의 Alpine Linux 기반 이미지를 사용하여 빌드 단계를 정의
 # Alpine은 경량화된 Linux 배포판으로 Docker 이미지 크기를 줄이는 데 효과적
-FROM node:22.16-alpine as build
+FROM node:22.16-alpine AS build
 
 # 컨테이너 내부의 작업 디렉토리를 /app으로 설정
 # 이후 모든 명령어는 이 디렉토리에서 실행됨
@@ -20,6 +20,13 @@ RUN npm install
 # .dockerignore 파일이 있다면 해당 파일에 명시된 파일들은 제외됨
 COPY . /app
 
+
+# build arguments for env variables
+ARG VITE_APIURL
+# set environment variables for vite build
+ENV VITE_APIURL=$VITE_APIURL
+
+
 # React 애플리케이션을 프로덕션용으로 빌드
 # 일반적으로 dist 또는 build 폴더에 최적화된 정적 파일들이 생성됨
 RUN npm run build
@@ -34,7 +41,7 @@ RUN rm /etc/nginx/conf.d/default.conf
 
 # 호스트의 nginx/nginx.conf 파일을 컨테이너의 Nginx 설정 디렉토리로 복사
 # 이 파일에는 React SPA(Single Page Application)를 위한 커스텀 Nginx 설정이 포함됨
-COPY nginx/nginx.conf /etc/nginx/conf.d
+COPY nginx/nginx.conf /etc/nginx/conf
 
 # 첫 번째 빌드 단계에서 생성된 React 앱의 빌드 결과물을 Nginx의 정적 파일 서빙 디렉토리로 복사
 # --from=build 플래그로 이전 단계의 결과물을 참조
