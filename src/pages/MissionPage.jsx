@@ -1,4 +1,3 @@
-// src/pages/MissionPage.jsx
 import { useState, useEffect, useRef } from "react";
 import { completeMission, submitTodayQuiz, playDailyLottery } from "../api/missions"; // ✅ 복권 API 포함
 import { fetchQuizBatch, submitQuizAnswer } from "../api/quiz";
@@ -17,6 +16,8 @@ const getTabFromHash = () => {
 
 // 미션 상태 키(클라이언트 보존용) - 사용자별 분리
 const BASE_MISSIONS_KEY = "missions_state_v2";
+// ✅ 사용자별 '마지막 본 날짜' 저장 키
+const DATE_MARK_BASE = "missions_last_date_v1";
 
 // 포인트 탭 ↔ 미션 탭 브리지(사용자별로 신호 저장: 복권/교환 완료)
 const BRIDGE_KEY = "mission_bridge_v1";
@@ -82,6 +83,7 @@ const MissionPage = ({ go }) => {
   // 사용자/스토리지
   const [username, setUsername] = useState("guest");
   const [storageKey, setStorageKey] = useState(null);
+  const [dateKey, setDateKey] = useState(null); // ✅ 사용자별 날짜 마킹 키
   const [loaded, setLoaded] = useState(false);
 
   // 기본 미션(총 6개) — 복권 보상 표시는 카드에서 '랜덤'으로 처리
@@ -97,7 +99,10 @@ const MissionPage = ({ go }) => {
   const [missions, setMissions] = useState(defaultMissions);
   const finalizingRef = useRef(new Set()); // finalizeMission 중복 호출 막기
   const bridgeSyncingRef = useRef(false);  // trySyncBridge 동시 실행 막기
-  
+
+  // ✅ 자정 타이머
+  const midnightTimerRef = useRef(null);
+
   /* === 사용자명 로드 → 스토리지 키 결정 === */
   useEffect(() => {
     let alive = true;
@@ -108,11 +113,13 @@ const MissionPage = ({ go }) => {
         const u = name || "guest";
         setUsername(u);
         setStorageKey(`${BASE_MISSIONS_KEY}::${u}`);
+        setDateKey(`${DATE_MARK_BASE}::${u}`); // ✅ 날짜 키
       } catch (e) {
         console.warn("me() failed, fallback guest", e);
         if (!alive) return;
         setUsername("guest");
         setStorageKey(`${BASE_MISSIONS_KEY}::guest`);
+        setDateKey(`${DATE_MARK_BASE}::guest`);
       }
     })();
     return () => { alive = false; };
@@ -122,6 +129,7 @@ const MissionPage = ({ go }) => {
   useEffect(() => {
     if (!storageKey) return;
     const isGuest = !username || username === "guest";
+    const today = todayStr();
     try {
       // 1) 사용자별 키 우선
       const raw = localStorage.getItem(storageKey);
@@ -133,6 +141,7 @@ const MissionPage = ({ go }) => {
           const normalized = normalizeForToday(merged);
           setMissions(normalized);
           localStorage.setItem(storageKey, JSON.stringify(normalized)); // 동기화
+          if (dateKey) localStorage.setItem(dateKey, today); // ✅ 오늘 마킹
           setLoaded(true);
           return;
         }
@@ -149,6 +158,7 @@ const MissionPage = ({ go }) => {
             const normalized = normalizeForToday(merged);
             setMissions(normalized);
             localStorage.setItem(storageKey, JSON.stringify(normalized));
+            if (dateKey) localStorage.setItem(dateKey, today); // ✅ 오늘 마킹
             setLoaded(true);
             return;
           }
@@ -159,15 +169,21 @@ const MissionPage = ({ go }) => {
       const normalized = normalizeForToday(defaultMissions);
       setMissions(normalized);
       localStorage.setItem(storageKey, JSON.stringify(normalized));
+      if (dateKey) localStorage.setItem(dateKey, today); // ✅ 오늘 마킹
       setLoaded(true);
     } catch (e) {
       console.warn("load missions failed", e);
       const normalized = normalizeForToday(defaultMissions);
       setMissions(normalized);
-      try { localStorage.setItem(storageKey, JSON.stringify(normalized)); } catch (e2) { console.warn(e2); }
+      try { localStorage.setItem(storageKey, JSON.stringify(normalized)); } catch {
+        //
+      }
+      try { if (dateKey) localStorage.setItem(dateKey, today); } catch {
+        //
+      }
       setLoaded(true);
     }
-  }, [storageKey, username]);
+  }, [storageKey, username, dateKey]);
 
   /* === 변경 시 저장(사용자별 키) === */
   useEffect(() => {
@@ -200,6 +216,60 @@ const MissionPage = ({ go }) => {
     return true;
   });
 
+  // === 날짜 마킹/초기화 유틸 ===
+  const markToday = () => {
+    try { if (dateKey) localStorage.setItem(dateKey, todayStr()); } catch {
+      //
+    }
+  };
+
+  const resetForNewDay = () => {
+    setMissions((prev) => {
+      const normalized = normalizeForToday(prev);
+      try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(normalized)); } catch {
+        //
+      }
+      return normalized;
+    });
+    // 브리지도 새 날짜로 초기화
+    writeBridge(username, { date: todayStr() });
+    markToday();
+    setIsModalOpen(false);
+    setModalKind(null);
+    setActiveTab("전체");
+  };
+
+  const checkDayChange = () => {
+    if (!dateKey) return;
+    const last = localStorage.getItem(dateKey);
+    const now = todayStr();
+    if (last !== now) {
+      resetForNewDay();
+    }
+  };
+
+  // ✅ 자정에 자동 리셋 + 다음 자정으로 재스케줄
+  useEffect(() => {
+    if (!loaded) return;
+
+    const schedule = () => {
+      if (midnightTimerRef.current) clearTimeout(midnightTimerRef.current);
+      const now = new Date();
+      const next = new Date();
+      next.setHours(24, 0, 0, 0); // 내일 00:00
+      const ms = next.getTime() - now.getTime() + 1000; // 여유 1s
+      midnightTimerRef.current = setTimeout(() => {
+        checkDayChange();
+        schedule();
+      }, Math.max(ms, 5000));
+    };
+
+    schedule();
+    return () => {
+      if (midnightTimerRef.current) clearTimeout(midnightTimerRef.current);
+    };
+  }, [loaded, dateKey, storageKey, username]);
+
   // 공용: 진행률 증가 + (선택) 오늘 잠금(lastCompletedDate 세팅)
   const applyProgress = (missionId, delta, lockToday = false) => {
     const today = todayStr();
@@ -216,8 +286,9 @@ const MissionPage = ({ go }) => {
       try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next)); } catch (e) { console.warn(e); }
       return next;
     });
+    markToday(); // ✅ 오늘 작업 기록
   };
-  
+
   // 서버 적립 호출 + 완료 마킹(즉시 반영) — 복권 제외
   const finalizeMission = async (missionId, _reasonOverride, overridePoints = null) => {
     const m = missions.find((x) => x.id === missionId);
@@ -250,12 +321,12 @@ const MissionPage = ({ go }) => {
           ? it
           : { ...it, progress: it.total, lastCompletedDate: today }
         ));
-        try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next));
-        } catch (e) {
+        try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next)); } catch (e) {
           console.warn("localStorage sync failed (finalizeMission):", e);
         }
         return next;
       });
+      markToday(); // ✅
 
       setSelectedMission(m);
       if (granted) {
@@ -286,6 +357,7 @@ const MissionPage = ({ go }) => {
       try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify(next)); } catch (e) { console.warn(e); }
       return next;
     });
+    markToday(); // ✅
 
     setSelectedMission(lot);
     setInfoMessage(
@@ -302,7 +374,6 @@ const MissionPage = ({ go }) => {
     const today = todayStr();
     if (m.lastCompletedDate === today && m.progress >= m.total) {
       setSelectedMission(m);
-      // 복권은 안내 문구를 별도로
       const msg =
         m.type === "lottery"
           ? "오늘의 복권은 이미 긁으셨어요. 내일 다시 도전해 주세요!"
@@ -372,6 +443,7 @@ const MissionPage = ({ go }) => {
           }
           return next;
         });
+        markToday(); // ✅
         if (typeof b.lottery.reward === "number") {
           const lot = missions.find((m) => m.type === "lottery");
           if (lot) {
@@ -401,11 +473,12 @@ const MissionPage = ({ go }) => {
     }
   };
 
-  // 포커스/스토리지 변경 시 자동 동기화
+  // 포커스/스토리지 변경 시 자동 동기화 + 날짜 변경 체크
   useEffect(() => {
-    const onFocus = () => trySyncBridge();
+    const onFocus = () => { checkDayChange(); trySyncBridge(); };
     const onStorage = (e) => {
       if (!e.key || !username) return;
+      if (e.key === dateKey) checkDayChange();
       if (e.key === `${BRIDGE_KEY}::${username}` || e.key === storageKey) {
         trySyncBridge();
       }
@@ -418,7 +491,7 @@ const MissionPage = ({ go }) => {
       window.removeEventListener("storage", onStorage);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username, loaded, storageKey, missions]);
+  }, [username, loaded, storageKey, missions, dateKey]);
 
   // 카드 키보드 접근성
   const onCardKeyDown = (e, m) => {
