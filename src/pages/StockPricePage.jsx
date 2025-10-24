@@ -363,6 +363,11 @@ export default function StockPricePage() {
               ? `${formatNumber(Math.round(s.price))}원`
               : "—원";
 
+            const volumeText =
+              Number.isFinite(s.volume) && s.volume > 0
+                ? formatNumber(s.volume)
+                : "—";
+
             return (
               <article
                 key={`${s.code}-${idx}`}
@@ -389,6 +394,7 @@ export default function StockPricePage() {
                   <div style={sectionLabel}>현재가</div>
                   <div style={priceStyle}>{priceText}</div>
 
+                  {/* 시총 탭일 때만 시가총액 표시 */}
                   {isMarketCapTab && Number.isFinite(s.marketCap) && s.marketCap > 0 && (
                     <div style={rowKV}>
                       <span>시가총액</span>
@@ -396,6 +402,13 @@ export default function StockPricePage() {
                     </div>
                   )}
 
+                  {/* 거래량은 '거래량' 탭에서만 표시 */}
+                  {!isMarketCapTab && (
+                    <div style={rowKV}>
+                      <span>거래량</span>
+                      <strong>{volumeText}</strong>
+                    </div>
+                  )}
                 </div>
               </article>
             );
