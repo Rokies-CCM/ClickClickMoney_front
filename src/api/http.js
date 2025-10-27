@@ -63,7 +63,7 @@ async function doFetch(method, path, body, withAuth, attachCsrfHeader = true) {
       method,
       headers,
       body: isFormData ? body : body ? JSON.stringify(body) : undefined,
-      credentials: "include", // ✅ 쿠키 전달 필수
+      credentials: "include", // 쿠키 전달 필수
     });
   } catch (e) {
     const err = new Error("네트워크 오류로 서버에 연결할 수 없습니다.");
