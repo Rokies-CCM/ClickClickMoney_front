@@ -132,6 +132,7 @@ LangChain 기반 개인 소비 분석 & 절약 코치 챗봇
 
 ---
 
+
 ## 5. 데이터 모델 (요약)
 ```text
 users(id, email, hashed_pw)
