@@ -3,6 +3,7 @@
 
 > “LLM이 가계부를 분석해 생활습관까지 이해하고,  
 > 실행 가능한 절약 플랜을 제안합니다.”
+<img width="2504" height="1370" alt="스크린샷 2026-01-24 222957" src="https://github.com/user-attachments/assets/d9734382-8db8-4902-b930-7bf6f5e7b06e" />
 
 ---
 
@@ -183,12 +184,14 @@ insights(id, user_id, period, type, payload, accepted)
 - 자동 분류 결과를 **사용자가 즉시 수정 가능한 UX**
 - 잘못된 분류에 대한 **Inline Editing**
 - 입력 즉시 대시보드 반영으로 피드백 지연 최소화
+<img width="2517" height="1381" alt="스크린샷 2026-01-24 222857" src="https://github.com/user-attachments/assets/2ed01544-49f5-4d6d-8c80-e8433e53f669" />
 
 #### 소비 대시보드
 - 월간 / 주간 소비 요약 카드
 - 카테고리별 지출 비중 차트
 - 전월 대비 증감 시 시각적 강조(컬러·아이콘)
 - 과소비 카테고리 우선 노출
+<img width="2502" height="1376" alt="스크린샷 2026-01-24 222920" src="https://github.com/user-attachments/assets/99a5fb31-6d93-4e6f-88c6-418220fcd19c" />
 
 #### 예산 관리 UI
 - 카테고리별 예산 설정
@@ -202,6 +205,7 @@ insights(id, user_id, period, type, payload, accepted)
   - 절감액 계산 결과
   - 실행 미션 버튼
 - “응답 → 행동”으로 이어지는 UX 설계
+<img width="2493" height="1368" alt="스크린샷 2026-01-24 222942" src="https://github.com/user-attachments/assets/dfde7cfe-3bb2-42a0-91db-1c5b3f00b9fe" />
 
 #### 주식증권 실시간 확인 UI
 - 증권사 api 연결
