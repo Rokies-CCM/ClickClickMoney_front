@@ -132,9 +132,8 @@ LangChain 기반 개인 소비 분석 & 절약 코치 챗봇
 
 ---
 
-
 ## 5. 데이터 모델 (요약)
-```text
+text
 users(id, email, hashed_pw)
 consumption(id, user_id, date, category_id, amount, memo)
 categories(id, name, type)
@@ -143,7 +142,6 @@ subscriptions(id, user_id, merchant, cycle, last_paid_at, est_monthly)
 insights(id, user_id, period, type, payload, accepted)
 
 ---
-
 
 ## 6. Frontend 구현 상세
 
@@ -252,7 +250,6 @@ insights(id, user_id, period, type, payload, accepted)
 ## Frontend Summary
 > **복잡한 소비·AI 데이터를  
 > 사용자가 이해하고 실천할 수 있는 UX로 구현한 프론트엔드 프로젝트**
-
 
 ---
 
